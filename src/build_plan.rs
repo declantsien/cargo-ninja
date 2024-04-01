@@ -40,7 +40,7 @@ impl Invocation {
         let links = self.links.clone();
         links
             .into_iter()
-            .filter(|(link, target)| !target.extension().map_or(false, |e| e == "dwp"))
+            .filter(|(_, target)| !target.extension().map_or(false, |e| e == "dwp"))
             .collect()
     }
     pub fn outputs(&self) -> Vec<PathBuf> {

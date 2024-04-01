@@ -29,7 +29,7 @@ impl Invocation {
             .expect("failed to execute process");
 
         if output.status.success() {
-            for (link, target) in self.links.clone() {
+            for (link, target) in self.links().clone() {
                 if let Some(dir) = target.as_path().parent() {
                     fs::create_dir_all(dir).expect("failed to create dir");
                 }

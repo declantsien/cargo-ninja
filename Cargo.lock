@@ -21,7 +21,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c59e92b5a388f549b863a7bea62612c09f24c8393560709a54558a9abdfb3b9c"
 
 [[package]]
-name = "cargo-build-plan"
+name = "cargo-ninja"
 version = "0.1.0"
 dependencies = [
  "ninja-files",
@@ -145,6 +145,7 @@ checksum = "6c8640c5d730cb13ebd907d8d04b52f55ac9a2eec55b440c8892f40d56c76c1d"
 [[package]]
 name = "ninja-files"
 version = "0.2.0"
+source = "git+https://git.sr.ht/~declantsien/ninja-files?branch=command_cwd#87467995c12b173d76bb14c40a876cc28a95cdcc"
 dependencies = [
  "ninja-files-cookie",
  "ninja-files-data",
@@ -153,6 +154,7 @@ dependencies = [
 [[package]]
 name = "ninja-files-cookie"
 version = "0.1.0"
+source = "git+https://git.sr.ht/~declantsien/ninja-files?branch=command_cwd#87467995c12b173d76bb14c40a876cc28a95cdcc"
 dependencies = [
  "cookie-factory",
  "ninja-files-data",
@@ -162,6 +164,7 @@ dependencies = [
 [[package]]
 name = "ninja-files-data"
 version = "0.1.0"
+source = "git+https://git.sr.ht/~declantsien/ninja-files?branch=command_cwd#87467995c12b173d76bb14c40a876cc28a95cdcc"
 dependencies = [
  "bumpalo",
  "camino",

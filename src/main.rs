@@ -81,16 +81,13 @@ impl Invocation {
             builder.file(utf8_path.unwrap(), build.clone())
         });
 
-        self.links()
-            .iter()
-            .enumerate()
-            .fold(file, |builder, (i, (link, target))| {
-                let f = FileBuilder::new().rule(LINK_RULE_ID, link_rule());
-                let build = BuildBuilder::new(LINK_RULE_ID);
-                let build = build.explicit(target.to_str().expect("non utf-8 path"));
-                let f = f.file(link.to_str().expect("non utf8 path"), build);
-                builder.merge(&f)
-            })
+        self.links().iter().fold(file, |builder, (link, target)| {
+            let f = FileBuilder::new().rule(LINK_RULE_ID, link_rule());
+            let build = BuildBuilder::new(LINK_RULE_ID);
+            let build = build.explicit(target.to_str().expect("non utf-8 path"));
+            let f = f.file(link.to_str().expect("non utf8 path"), build);
+            builder.merge(&f)
+        })
     }
 }
 
