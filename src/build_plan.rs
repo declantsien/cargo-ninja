@@ -8,89 +8,16 @@
 
 #![warn(missing_debug_implementations)]
 
-use serde::de::{self, Error};
 use std::collections::BTreeMap;
-use std::fs;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::PathBuf;
-use std::process::ExitStatus;
-
-/// Kinds of libraries that can be created.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum LibKind {
-    Lib,
-    Rlib,
-    Dylib,
-    ProcMacro,
-    Other(String),
-}
-
-impl LibKind {
-    pub fn from_str(string: &str) -> LibKind {
-        match string {
-            "lib" => LibKind::Lib,
-            "rlib" => LibKind::Rlib,
-            "dylib" => LibKind::Dylib,
-            "proc-macro" => LibKind::ProcMacro,
-            s => LibKind::Other(s.to_string()),
-        }
-    }
-
-    /// Returns the argument suitable for `--crate-type` to pass to rustc.
-    pub fn crate_type(&self) -> &str {
-        match *self {
-            LibKind::Lib => "lib",
-            LibKind::Rlib => "rlib",
-            LibKind::Dylib => "dylib",
-            LibKind::ProcMacro => "proc-macro",
-            LibKind::Other(ref s) => s,
-        }
-    }
-
-    pub fn linkable(&self) -> bool {
-        match *self {
-            LibKind::Lib | LibKind::Rlib | LibKind::Dylib | LibKind::ProcMacro => true,
-            LibKind::Other(..) => false,
-        }
-    }
-}
-
-/// Describes artifacts that can be produced using `cargo build`.
-#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub enum TargetKind {
-    Lib(Vec<LibKind>),
-    Bin,
-    Test,
-    Bench,
-    ExampleLib(Vec<LibKind>),
-    ExampleBin,
-    CustomBuild,
-}
-
-impl<'de> de::Deserialize<'de> for TargetKind {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: de::Deserializer<'de>,
-    {
-        use self::TargetKind::*;
-
-        let raw = Vec::<&str>::deserialize(deserializer)?;
-        Ok(match *raw {
-            [] => return Err(D::Error::invalid_length(0, &"at least one target kind")),
-            ["bin"] => Bin,
-            ["example"] => ExampleBin, // FIXME ExampleLib is never created this way
-            ["test"] => Test,
-            ["custom-build"] => CustomBuild,
-            ["bench"] => Bench,
-            ref lib_kinds => Lib(lib_kinds.iter().cloned().map(LibKind::from_str).collect()),
-        })
-    }
-}
 
 /// A tool invocation.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone, Hash)]
 pub struct Invocation {
     pub package_name: String,
-    pub target_kind: TargetKind,
+    pub package_version: String,
+    pub target_kind: Vec<String>,
     pub compile_mode: String,
     /// List of invocations this invocation depends on.
     ///
@@ -109,46 +36,26 @@ pub struct Invocation {
 }
 
 impl Invocation {
-    pub fn exec(&self) {
-        use std::io::{self, Write};
-        use std::process::Command;
-        // if !self.outputs.is_empty() && self.outputs.iter().all(|o| o.exists()) {
-        //     println!("extists");
-        //     return;
-        // };
-        // .dwp
-        // DWARF Package (dwp)
-        for output in self.outputs.clone() {
-            if let Some(dir) = output.as_path().parent() {
-                fs::create_dir_all(dir).expect("failed to create dir");
-            }
-        }
-
-        let output = Command::new(self.program.clone())
-            .current_dir(self.cwd.clone().unwrap())
-            .args(self.args.clone())
-            .envs(self.env.clone())
-            .output()
-            .expect("failed to execute process");
-
-        // println!("status: {}", output.status);
-        if output.status.success() {
-            for (link, original) in self.links.clone() {
-                if let Some(dir) = original.as_path().parent() {
-                    fs::create_dir_all(dir).expect("failed to create dir");
-                }
-                // println!("{link:?} {original:?}");
-                if link.exists() {
-                    fs::remove_file(link.clone()).expect("failed to remove old link")
-                }
-                if original.exists() {
-                    fs::hard_link(original, link).expect("failed to create link");
-                    // Hard link a.txt to b.txt
-                }
-            }
-        }
-        // io::stdout().write_all(&output.stdout).unwrap();
-        io::stderr().write_all(&output.stderr).unwrap();
+    pub fn links(&self) -> BTreeMap<PathBuf, PathBuf> {
+        let links = self.links.clone();
+        links
+            .into_iter()
+            .filter(|(link, target)| !target.extension().map_or(false, |e| e == "dwp"))
+            .collect()
+    }
+    pub fn outputs(&self) -> Vec<PathBuf> {
+        let mut s = DefaultHasher::new();
+        self.hash(&mut s);
+        let hash = s.finish();
+        let outputs = if self.outputs.is_empty() {
+            vec![PathBuf::from(hash.to_string())]
+        } else {
+            self.outputs.clone()
+        };
+        outputs
+            .into_iter()
+            .filter(|o| !o.extension().map_or(false, |e| e == "rmeta"))
+            .collect()
     }
 }
 

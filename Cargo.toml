@@ -1,13 +1,21 @@
 [package]
-name = "cargo-build-plan"
+name = "cargo-ninja"
+description = "Generate build.ninja for Cargo build plan"
 version = "0.1.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+default-run = "cargo-build-plan"
 
 [dependencies]
 serde = "1"
 serde_derive = "1"
 serde_json = "1"
-cargo-util = "0.2"
+ninja-files-data.path = "/home/declan/src/ninja-files/lib/data"
+ninja-files.path = "/home/declan/src/ninja-files/"
+# ninja-files-data = "0.1"
+# ninja-files = "0.1"
+ninja-writer = "0.2"
+
+[[bin]]
+name = "exec"
+
 
