@@ -8,6 +8,7 @@
 
 #![warn(missing_debug_implementations)]
 
+use std::borrow::BorrowMut;
 use std::collections::BTreeMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::PathBuf;
@@ -43,19 +44,29 @@ impl Invocation {
             .filter(|(_, target)| !target.extension().map_or(false, |e| e == "dwp"))
             .collect()
     }
-    pub fn outputs(&self) -> Vec<PathBuf> {
+
+    pub fn hash_string(&self) -> String {
         let mut s = DefaultHasher::new();
         self.hash(&mut s);
         let hash = s.finish();
+        hash.to_string()
+    }
+
+    pub fn outputs(&self) -> Vec<PathBuf> {
         let outputs = if self.outputs.is_empty() {
-            vec![PathBuf::from(hash.to_string())]
+            vec![PathBuf::from(self.hash_string())]
         } else {
-            self.outputs.clone()
+            self.outputs
+                .clone()
+                .into_iter()
+                .filter(|output| !output.extension().map_or(false, |e| e == "dwp"))
+                .collect()
         };
+        // outputs
+        //     .into_iter()
+        //     .filter(|o| !o.extension().map_or(false, |e| e == "rmeta"))
+        //     .collect()
         outputs
-            .into_iter()
-            .filter(|o| !o.extension().map_or(false, |e| e == "rmeta"))
-            .collect()
     }
 }
 
