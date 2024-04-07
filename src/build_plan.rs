@@ -8,9 +8,9 @@
 
 #![warn(missing_debug_implementations)]
 
-use std::borrow::BorrowMut;
+use std::collections::hash_map::DefaultHasher;
 use std::collections::BTreeMap;
-use std::hash::{DefaultHasher, Hash, Hasher};
+use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
 /// A tool invocation.
