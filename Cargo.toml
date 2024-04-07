@@ -16,6 +16,7 @@ ninja-files.path = "/home/declan/src/ninja-files/"
 ninja-writer = "0.2"
 shell-escape  = "0.1"
 snailquote = "0.3"
+camino = { version = "1.1.4", features = ["serde1"] }
 
 [[bin]]
 name = "exec"

@@ -8,10 +8,10 @@
 
 #![warn(missing_debug_implementations)]
 
+use camino::Utf8PathBuf;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
-use std::path::PathBuf;
 
 /// A tool invocation.
 #[derive(Debug, Deserialize, Clone, Hash)]
@@ -27,17 +27,17 @@ pub struct Invocation {
     /// [`BuildPlan::invocations`]: struct.BuildPlan.html#structfield.invocations
     pub deps: Vec<usize>,
     /// List of output artifacts (binaries/libraries) created by this invocation.
-    pub outputs: Vec<PathBuf>,
+    pub outputs: Vec<Utf8PathBuf>,
     /// Hardlinks of output files that should be placed.
-    pub links: BTreeMap<PathBuf, PathBuf>,
+    pub links: BTreeMap<Utf8PathBuf, Utf8PathBuf>,
     pub program: String,
     pub args: Vec<String>,
     pub env: BTreeMap<String, String>,
-    pub cwd: Option<PathBuf>,
+    pub cwd: Option<Utf8PathBuf>,
 }
 
 impl Invocation {
-    pub fn links(&self) -> BTreeMap<PathBuf, PathBuf> {
+    pub fn links(&self) -> BTreeMap<Utf8PathBuf, Utf8PathBuf> {
         let links = self.links.clone();
         links
             .into_iter()
@@ -52,9 +52,9 @@ impl Invocation {
         hash.to_string()
     }
 
-    pub fn outputs(&self) -> Vec<PathBuf> {
+    pub fn outputs(&self) -> Vec<Utf8PathBuf> {
         let outputs = if self.outputs.is_empty() {
-            vec![PathBuf::from(self.hash_string())]
+            vec![Utf8PathBuf::from(self.hash_string())]
         } else {
             self.outputs
                 .clone()
@@ -62,10 +62,6 @@ impl Invocation {
                 .filter(|output| !output.extension().map_or(false, |e| e == "dwp"))
                 .collect()
         };
-        // outputs
-        //     .into_iter()
-        //     .filter(|o| !o.extension().map_or(false, |e| e == "rmeta"))
-        //     .collect()
         outputs
     }
 }
@@ -76,7 +72,7 @@ pub struct BuildPlan {
     /// Program invocations needed to build the target (along with dependency information).
     pub invocations: Vec<Invocation>,
     /// List of Cargo manifests involved in the build.
-    pub inputs: Vec<PathBuf>,
+    pub inputs: Vec<Utf8PathBuf>,
 }
 
 impl BuildPlan {

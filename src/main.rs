@@ -6,10 +6,12 @@ extern crate serde_json;
 mod build_plan;
 
 use build_plan::{BuildPlan, Invocation};
+use camino::Utf8PathBuf;
 use ninja_files::format::write_ninja_file;
 use ninja_files_data::{BuildBuilder, CommandBuilder, File, FileBuilder, RuleBuilder};
 use snailquote::escape;
-use std::{collections::BTreeSet, path::PathBuf};
+use std::collections::BTreeSet;
+
 const BUILD_NINJA: &str = "build.ninja";
 const LINK_RULE_ID: &str = "link";
 const ENSURE_DIR_ALL_RULE_ID: &str = "ensure_dir_all";
@@ -45,7 +47,7 @@ fn ensure_dir_all_rule() -> RuleBuilder {
     RuleBuilder::new(command)
 }
 
-fn ninja_dir(p: &PathBuf) -> Option<PathBuf> {
+fn ninja_dir(p: &Utf8PathBuf) -> Option<Utf8PathBuf> {
     p.parent().map(|p| p.to_path_buf().join(".ninja_dir"))
 }
 
@@ -61,7 +63,7 @@ impl Invocation {
         )
     }
 
-    pub fn dirs(&self) -> BTreeSet<PathBuf> {
+    pub fn dirs(&self) -> BTreeSet<Utf8PathBuf> {
         if self.compile_mode == "run-custom-build" {
             return BTreeSet::new();
         }
@@ -76,17 +78,12 @@ impl Invocation {
             })
     }
 
-    pub fn ninja_build(&self, indice: usize, deps: Vec<PathBuf>) -> FileBuilder {
+    pub fn ninja_build(&self, indice: usize, deps: Vec<Utf8PathBuf>) -> FileBuilder {
         let rule_id = self.rule_id(indice);
-        println!("{rule_id:?}");
         let rule = {
             let command = CommandBuilder::new(self.program.clone());
             // let command = CommandBuilder::new("strace").arg(self.program.clone());
-            let command = command.cwd(
-                self.cwd
-                    .as_ref()
-                    .map(|cwd| cwd.to_str().expect("non utf8 path")),
-            );
+            let command = command.cwd(self.cwd.clone());
 
             let command = self.args.iter().fold(command, |cmd, arg| {
                 if arg == "--error-format=json" || arg.starts_with("--json=") {
@@ -105,7 +102,7 @@ impl Invocation {
                     .arg("cd -")
                     .arg("&&")
                     .arg("touch")
-                    .arg(self.outputs().get(0).unwrap().to_str().unwrap()),
+                    .arg(self.outputs().get(0).unwrap().as_str()),
                 false => command,
             };
 
@@ -113,47 +110,34 @@ impl Invocation {
         };
         let build = BuildBuilder::new(rule_id.clone());
         // println!("deps: {deps:?}");
-        let build = deps.iter().fold(build, |build, d| {
-            let utf8_path = d.to_str();
-            if utf8_path.is_none() {
-                println!("warning: non utf8 path {}", d.display());
-                return build;
-            }
-            build.explicit(utf8_path.unwrap())
-        });
+        let build = deps.iter().fold(build, |build, d| build.explicit(d));
 
         let file = FileBuilder::new().rule(rule_id.clone(), rule);
         let file = self.outputs().iter().fold(file, |builder, o| {
             let build = build.clone();
             let build = match ninja_dir(o) {
-                Some(p) => build.implicit(p.to_str().expect("non utf-8 path")),
+                Some(p) => build.implicit(p),
                 _ => build,
             };
-            let utf8_path = o.to_str();
-            if utf8_path.is_none() {
-                println!("warning: non utf8 path {}", o.display());
-                return builder;
-            }
-            println!("warning: utf8 path {}", o.display());
-            builder.output(utf8_path.unwrap(), build)
+            builder.output(o, build)
         });
 
         let file = self.dirs().iter().fold(file, |builder, dir| {
             let f = FileBuilder::new().rule(ENSURE_DIR_ALL_RULE_ID, ensure_dir_all_rule());
             let build = BuildBuilder::new(ENSURE_DIR_ALL_RULE_ID);
-            let f = f.output(dir.to_str().expect("non utf8 path"), build);
+            let f = f.output(dir, build);
             builder.merge(&f)
         });
 
         self.links().iter().fold(file, |builder, (link, target)| {
             let f = FileBuilder::new().rule(LINK_RULE_ID, link_rule());
             let build = BuildBuilder::new(LINK_RULE_ID);
-            let build = build.explicit(target.to_str().expect("non utf-8 path"));
+            let build = build.explicit(target);
             let build = match ninja_dir(target) {
-                Some(p) => build.implicit(p.to_str().expect("non utf-8 path")),
+                Some(p) => build.implicit(p),
                 _ => build,
             };
-            let f = f.output(link.to_str().expect("non utf8 path"), build);
+            let f = f.output(link, build);
             builder.merge(&f)
         })
     }
@@ -165,12 +149,12 @@ impl Into<File> for BuildPlan {
             .iter()
             .enumerate()
             .fold(FileBuilder::new(), |builder, (i, inv)| {
-                let deps: Vec<PathBuf> = Vec::new();
+                let deps: Vec<Utf8PathBuf> = Vec::new();
 
-                let deps: Vec<PathBuf> = inv.deps.iter().fold(deps, |mut all_outputs, i| {
+                let deps: Vec<Utf8PathBuf> = inv.deps.iter().fold(deps, |mut all_outputs, i| {
                     let mut outputs = self.invocations[*i].outputs();
                     all_outputs.append(&mut outputs);
-                    let mut links: Vec<PathBuf> = self.invocations[*i]
+                    let mut links: Vec<Utf8PathBuf> = self.invocations[*i]
                         .links()
                         .into_iter()
                         .map(|(link, _)| link)
