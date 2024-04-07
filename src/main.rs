@@ -5,7 +5,7 @@ extern crate serde_json;
 
 mod build_plan;
 
-use build_plan::{BuildPlan, Invocation};
+use build_plan::{with_build_plan, BuildPlan, Invocation};
 use camino::Utf8PathBuf;
 use ninja_files::format::write_ninja_file;
 use ninja_files_data::{BuildBuilder, CommandBuilder, File, FileBuilder, RuleBuilder};
@@ -169,45 +169,13 @@ impl Into<File> for BuildPlan {
     }
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
-    use std::io::Write;
-
-    // let command = CommandBuilder::new("cargo")
-    //     .cwd(std::env::current_dir().ok().and_then(|p| p.into_os_string().into_string().ok()))
-    //     .arg("build")
-    //     .arg("-Z")
-    //     .arg("unstable-options")
-    //     .arg("--build-plan");
-    // let command = std::env::args().fold(command, |cmd, arg| cmd.arg(arg));
-    // let command = std::env::vars().fold(command, |cmd, (key, val)| cmd.env(key, val));
-
-    let mut cmd = std::process::Command::new("cargo");
-    if let Ok(dir) = std::env::current_dir() {
-        cmd.current_dir(dir);
-    }
-    cmd.arg("-Z");
-    cmd.arg("unstable-options");
-    cmd.arg("build");
-    cmd.arg("--build-plan");
-    std::env::args().enumerate().for_each(|(i, arg)| {
-        if i == 0 {
-            return;
-        }
-        cmd.arg(arg);
-    });
-    cmd.envs(std::env::vars());
-    println!("{:?}", std::env::vars());
-    let output = cmd.output().expect("failed to execute process");
-
-    if output.status.success() {
-        // std::io::stdout().write_all(&output.stdout).unwrap();
-        let plan = BuildPlan::from_cargo_output(&output.stdout)?;
+fn main() -> Result<(), anyhow::Error> {
+    with_build_plan(|plan| {
         let ninja: File = plan.into();
-        let file = std::fs::File::create(BUILD_NINJA).unwrap();
-        let _ = write_ninja_file(&ninja, file).unwrap();
-    }
-
-    std::io::stderr().write_all(&output.stderr).unwrap();
+        let file = std::fs::File::create(BUILD_NINJA)?;
+        write_ninja_file(&ninja, file)?;
+        Ok(())
+    })?;
 
     Ok(())
 }

@@ -6,6 +6,7 @@ extern crate serde_json;
 #[path = "../build_plan.rs"]
 mod build_plan;
 
+use crate::build_plan::with_build_plan;
 use build_plan::BuildPlan;
 use std::fs;
 
@@ -48,24 +49,22 @@ impl Invocation {
     }
 }
 
-pub fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
-    let bytes = fs::read("/home/declan/src/cargo-build-plan/build-plan.json")?;
-    let plan = BuildPlan::from_cargo_output(bytes)?;
-
-    let target = plan
-        .invocations
-        .iter()
-        .find(|i| {
-            i.package_name == "emacsng"
+pub fn main() -> Result<(), anyhow::Error> {
+    with_build_plan(|plan| {
+        let target = plan.invocations.iter().find(|i| {
+            i.package_name == "cargo-ninja"
                 && i.target_kind
                     .iter()
                     .find(|kind| kind.as_str() == "custom-build")
                     .is_some()
                 && i.compile_mode == "run-custom-build"
-        })
-        .unwrap();
+        });
 
-    exec(target, &plan);
+        if let Some(target) = target {
+            exec(target, &plan);
+        }
+        Ok(())
+    })?;
 
     Ok(())
 }
@@ -73,15 +72,6 @@ pub fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
 fn exec(invocation: &Invocation, plan: &BuildPlan) {
     for i in invocation.deps.clone() {
         let d = plan.invocations.get(i).unwrap();
-        // println!(
-        //     "invo ({}, {:?}, {}) depends on {} {:?} {}",
-        //     invocation.package_name,
-        //     invocation.target_kind,
-        //     invocation.compile_mode,
-        //     d.package_name,
-        //     d.target_kind,
-        //     d.compile_mode
-        // );
         exec(d, plan)
     }
     invocation.exec()

@@ -15,6 +15,8 @@ ninja-files-data.path = "/home/declan/src/ninja-files/lib/data"
 ninja-files.path = "/home/declan/src/ninja-files/"
 snailquote = "0.3"
 camino = { version = "1.1.4", features = ["serde1"] }
+thiserror = "1.0"
+anyhow = "1.0"
 
 [[bin]]
 name = "exec"

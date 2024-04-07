@@ -84,3 +84,33 @@ impl BuildPlan {
         serde_json::from_slice(output.as_ref())
     }
 }
+
+pub fn with_build_plan<F: FnMut(BuildPlan) -> Result<(), anyhow::Error>>(
+    mut f: F,
+) -> Result<(), anyhow::Error> {
+    use std::io::Write;
+
+    let mut cmd = std::process::Command::new("cargo");
+    if let Ok(dir) = std::env::current_dir() {
+        cmd.current_dir(dir);
+    }
+    cmd.arg("-Z");
+    cmd.arg("unstable-options");
+    cmd.arg("build");
+    cmd.arg("--build-plan");
+    std::env::args().enumerate().for_each(|(i, arg)| {
+        if i == 0 {
+            return;
+        }
+        cmd.arg(arg);
+    });
+    cmd.envs(std::env::vars());
+    let output = cmd.output().expect("failed to execute process");
+
+    if output.status.success() {
+        let plan = BuildPlan::from_cargo_output(&output.stdout)?;
+        f(plan)?;
+    }
+    std::io::stderr().write_all(&output.stderr).unwrap();
+    Ok(())
+}
