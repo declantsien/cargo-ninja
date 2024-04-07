@@ -30,11 +30,9 @@ dependencies = [
  "camino",
  "ninja-files",
  "ninja-files-data",
- "ninja-writer",
  "serde",
  "serde_derive",
  "serde_json",
- "shell-escape",
  "snailquote",
 ]
 
@@ -174,12 +172,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ninja-writer"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e4779cbc91dcae9538be06322da26ec72eac1be8daa8f70838a93414ca61a64"
-
-[[package]]
 name = "os_str_bytes"
 version = "6.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -254,12 +246,6 @@ dependencies = [
  "ryu",
  "serde",
 ]
-
-[[package]]
-name = "shell-escape"
-version = "0.1.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "45bb67a18fa91266cc7807181f62f9178a6873bfad7dc788c42e6430db40184f"
 
 [[package]]
 name = "slab"
