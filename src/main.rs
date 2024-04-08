@@ -79,7 +79,6 @@ impl Invocation {
         let rule_id = self.rule_id(indice);
         let rule = {
             let command = CommandBuilder::new(self.program.clone());
-            // let command = CommandBuilder::new("strace").arg(self.program.clone());
             let command = command.cwd(self.cwd.clone());
 
             let command = self.args.iter().fold(command, |cmd, arg| {
@@ -96,8 +95,16 @@ impl Invocation {
             let command = match self.compile_mode == "run-custom-build" {
                 true => command
                     .arg(">")
-                    .arg(self.custom_build_output().expect("sdf").as_str()),
-                false => command,
+                    .arg(self.custom_build_output().unwrap().as_str()),
+                false => match self.custom_build_output() {
+                    Ok(output) => command.arg(format!(
+                        "$$({} {})",
+                        std::env::var("CARGO_BUILD_SCRIPT_OUTPUT_PARSER")
+                            .expect("no CARGO_BUILD_SCRIPT_OUTPUT_PARSER provided"),
+                        output
+                    )),
+                    _ => command,
+                },
             };
 
             RuleBuilder::new(command)
@@ -171,7 +178,9 @@ fn main() -> Result<(), anyhow::Error> {
 
     let build_dir = std::env::current_dir()?.join(build_dir);
     std::fs::create_dir_all(build_dir.clone())?;
-    with_build_plan(build_dir.clone(), |plan| {
+    let build_dir = Utf8PathBuf::from_path_buf(build_dir)
+        .map_err(|e| anyhow::format_err!("{:?} is not a utf8 path", e))?;
+    with_build_plan(Some(build_dir.clone()), |plan| {
         for i in &plan.invocations {
             if let Ok(out_dir) = i.out_dir() {
                 std::fs::create_dir_all(out_dir)?;

@@ -10,7 +10,6 @@
 
 use camino::Utf8PathBuf;
 use std::collections::BTreeMap;
-use std::path::PathBuf;
 
 /// A tool invocation.
 #[derive(Debug, Deserialize, Clone, Hash)]
@@ -98,12 +97,10 @@ impl BuildPlan {
 }
 
 pub fn with_build_plan<F: FnMut(BuildPlan) -> Result<(), anyhow::Error>>(
-    build_dir: PathBuf,
+    build_dir: Option<Utf8PathBuf>,
     mut f: F,
 ) -> Result<(), anyhow::Error> {
     use std::io::Write;
-    let build_dir = Utf8PathBuf::from_path_buf(build_dir)
-        .map_err(|e| anyhow::format_err!("{:?} is not a utf8 path", e))?;
 
     let mut cmd = std::process::Command::new("cargo");
     if let Ok(dir) = std::env::current_dir() {
@@ -117,15 +114,22 @@ pub fn with_build_plan<F: FnMut(BuildPlan) -> Result<(), anyhow::Error>>(
         cmd.arg(arg);
     });
     cmd.envs(std::env::vars());
-    cmd.env("CARGO_TARGET_DIR", build_dir.as_str());
+    if let Some(build_dir) = &build_dir {
+        cmd.env("CARGO_TARGET_DIR", build_dir.as_str());
+    }
+
     let output = cmd.output().expect("failed to execute process");
 
     if output.status.success() {
-        let output = String::from_utf8(output.stdout.clone())?;
-        let output = output
-            .replace(build_dir.join("debug").as_str(), build_dir.as_str())
-            .replace(build_dir.join("release").as_str(), build_dir.as_str());
-        let plan = BuildPlan::from_cargo_output(&output.into_bytes())?;
+        let mut data = output.stdout;
+        if let Some(build_dir) = build_dir {
+            let output = String::from_utf8(data.clone())?;
+            let output = output
+                .replace(build_dir.join("debug").as_str(), build_dir.as_str())
+                .replace(build_dir.join("release").as_str(), build_dir.as_str());
+            data = output.into_bytes();
+        }
+        let plan = BuildPlan::from_cargo_output(&data)?;
         f(plan)?;
     }
     std::io::stderr().write_all(&output.stderr)?;

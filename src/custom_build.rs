@@ -469,6 +469,7 @@ impl BuildOutput {
     }
 }
 
+#[allow(dead_code)]
 impl BuildDeps {
     /// Creates a build script dependency information from a previous
     /// build script output path and the content.

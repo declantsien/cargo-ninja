@@ -1,7 +1,7 @@
 #[path = "../custom_build.rs"]
 mod custom_build;
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use custom_build::BuildOutput;
 
@@ -69,6 +69,7 @@ fn main() -> Result<(), anyhow::Error> {
             args
         });
 
-    println!("build_output: {args:?}");
+    use std::io::Write;
+    std::io::stdout().write_all(&args.into_bytes())?;
     Ok(())
 }

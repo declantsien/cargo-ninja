@@ -473,6 +473,7 @@ dependencies = [
 [[package]]
 name = "ninja-files"
 version = "0.2.0"
+source = "git+https://git.sr.ht/~declantsien/ninja-files#928b76ecba3de62ed816da7340c4205597d7a347"
 dependencies = [
  "ninja-files-cookie",
  "ninja-files-data",
@@ -481,6 +482,7 @@ dependencies = [
 [[package]]
 name = "ninja-files-cookie"
 version = "0.1.0"
+source = "git+https://git.sr.ht/~declantsien/ninja-files#928b76ecba3de62ed816da7340c4205597d7a347"
 dependencies = [
  "cookie-factory",
  "ninja-files-data",
@@ -490,6 +492,7 @@ dependencies = [
 [[package]]
 name = "ninja-files-data"
 version = "0.1.0"
+source = "git+https://git.sr.ht/~declantsien/ninja-files#928b76ecba3de62ed816da7340c4205597d7a347"
 dependencies = [
  "bumpalo",
  "camino",
