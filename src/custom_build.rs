@@ -15,25 +15,12 @@
 //! [`CompileMode::RunCustomBuild`]: super::CompileMode
 //! [instructions]: https://doc.rust-lang.org/cargo/reference/build-scripts.html#outputs-of-the-build-script
 
-use anyhow::{bail, Context as _};
-use std::collections::hash_map::{Entry, HashMap};
-use std::collections::{BTreeSet, HashSet};
-use std::path::{Path, PathBuf};
-use std::str::{self, FromStr};
-use std::sync::{Arc, Mutex};
+use anyhow::bail;
 use cargo_util::paths;
 use cargo_util_schemas::manifest::RustVersion;
+use std::path::{Path, PathBuf};
+use std::str::{self, FromStr};
 
-/// Deprecated: A build script instruction that tells Cargo to display a warning after the
-/// build script has finished running. Read [the doc] for more.
-///
-/// [the doc]: https://doc.rust-lang.org/nightly/cargo/reference/build-scripts.html#cargo-warning
-const OLD_CARGO_WARNING_SYNTAX: &str = "cargo:warning=";
-/// A build script instruction that tells Cargo to display a warning after the
-/// build script has finished running. Read [the doc] for more.
-///
-/// [the doc]: https://doc.rust-lang.org/nightly/cargo/reference/build-scripts.html#cargo-warning
-const NEW_CARGO_WARNING_SYNTAX: &str = "cargo::warning=";
 /// Contains the parsed output of a custom build script.
 #[derive(Clone, Debug, Hash, Default)]
 pub struct BuildOutput {
@@ -101,22 +88,6 @@ pub enum LinkArgTarget {
     /// Represents `cargo::rustc-link-arg-examples=FLAG`.
     Example,
 }
-
-// impl LinkArgTarget {
-//     /// Checks if this link type applies to a given [`Target`].
-//     pub fn applies_to(&self, target: &Target) -> bool {
-//         match self {
-//             LinkArgTarget::All => true,
-//             LinkArgTarget::Cdylib => target.is_cdylib(),
-//             LinkArgTarget::Bin => target.is_bin(),
-//             LinkArgTarget::SingleBin(name) => target.is_bin() && target.name() == name,
-//             LinkArgTarget::Test => target.is_test(),
-//             LinkArgTarget::Bench => target.is_bench(),
-//             LinkArgTarget::Example => target.is_exe_example(),
-//         }
-//     }
-// }
-
 
 impl BuildOutput {
     /// Like [`BuildOutput::parse`] but from a file path.
@@ -515,38 +486,3 @@ impl BuildDeps {
         }
     }
 }
-
-// /// Returns the previous parsed `BuildOutput`, if any, from a previous
-// /// execution.
-// ///
-// /// Also returns the directory containing the output, typically used later in
-// /// processing.
-// fn prev_build_output(
-//     build_runner: &mut BuildRunner<'_, '_>,
-//     unit: &Unit,
-// ) -> (Option<BuildOutput>, PathBuf) {
-//     let script_out_dir = build_runner.files().build_script_out_dir(unit);
-//     let script_run_dir = build_runner.files().build_script_run_dir(unit);
-//     let root_output_file = script_run_dir.join("root-output");
-//     let output_file = script_run_dir.join("output");
-
-//     let prev_script_out_dir = paths::read_bytes(&root_output_file)
-//         .and_then(|bytes| paths::bytes2path(&bytes))
-//         .unwrap_or_else(|_| script_out_dir.clone());
-
-//     (
-//         BuildOutput::parse_file(
-//             &output_file,
-//             unit.pkg.library().map(|t| t.crate_name()),
-//             &unit.pkg.to_string(),
-//             &prev_script_out_dir,
-//             &script_out_dir,
-//             build_runner.bcx.gctx.cli_unstable().check_cfg,
-//             build_runner.bcx.gctx.nightly_features_allowed,
-//             unit.pkg.targets(),
-//             &unit.pkg.rust_version().cloned(),
-//         )
-//         .ok(),
-//         prev_script_out_dir,
-//     )
-// }

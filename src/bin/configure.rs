@@ -18,5 +18,4 @@ fn main() {
     let dir = output.parent().unwrap();
     let build_output = BuildOutput::parse_file(&output, None, "", dir, dir, true, true, &None);
     println!("build_output: {build_output:?}");
-
 }

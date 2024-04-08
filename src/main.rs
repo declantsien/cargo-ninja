@@ -4,7 +4,6 @@ extern crate serde;
 extern crate serde_json;
 
 mod build_plan;
-mod custom_build;
 
 use build_plan::{with_build_plan, BuildPlan, Invocation};
 use camino::Utf8PathBuf;
@@ -99,14 +98,8 @@ impl Invocation {
 
             let command = match self.compile_mode == "run-custom-build" {
                 true => command
-                    .arg("&&")
-                    .arg("cd -")
-                    .arg("&&")
-                    .arg("touch")
-                    .arg(self.outputs().get(0).unwrap().as_str()),
-                // true => command
-                //     .arg(">")
-                //     .arg("$OLDPWD/".to_string() + self.outputs().get(0).unwrap().as_str()),                
+                    .arg(">")
+                    .arg("$$OLDPWD/".to_string() + self.outputs().get(0).unwrap().as_str()),
                 false => command,
             };
 
@@ -174,9 +167,15 @@ impl Into<File> for BuildPlan {
 }
 
 fn main() -> Result<(), anyhow::Error> {
-    with_build_plan(|plan| {
+    let args = std::env::args().skip(1).take(1).collect::<Vec<String>>();
+    let build_dir = args
+        .get(0)
+        .ok_or(anyhow::format_err!("no build directory specified"))?;
+    let build_dir = std::env::current_dir()?.join(build_dir);
+    std::fs::create_dir_all(build_dir.clone())?;
+    with_build_plan(build_dir.clone(), |plan| {
         let ninja: File = plan.into();
-        let file = std::fs::File::create(BUILD_NINJA)?;
+        let file = std::fs::File::create(build_dir.join(BUILD_NINJA))?;
         write_ninja_file(&ninja, file)?;
         Ok(())
     })?;
