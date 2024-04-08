@@ -171,9 +171,15 @@ fn main() -> Result<(), anyhow::Error> {
     let build_dir = args
         .get(0)
         .ok_or(anyhow::format_err!("no build directory specified"))?;
+
     let build_dir = std::env::current_dir()?.join(build_dir);
     std::fs::create_dir_all(build_dir.clone())?;
     with_build_plan(build_dir.clone(), |plan| {
+        for i in &plan.invocations {
+            if let Some((_, output_dir)) = i.env.iter().find(|(key, _)| key.as_str() == "OUT_DIR") {
+                std::fs::create_dir_all(Utf8PathBuf::from(output_dir))?;
+            }
+        }
         let ninja: File = plan.into();
         let file = std::fs::File::create(build_dir.join(BUILD_NINJA))?;
         write_ninja_file(&ninja, file)?;
