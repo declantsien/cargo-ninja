@@ -9,9 +9,7 @@
 #![warn(missing_debug_implementations)]
 
 use camino::Utf8PathBuf;
-use std::collections::hash_map::DefaultHasher;
 use std::collections::BTreeMap;
-use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
 /// A tool invocation.
@@ -46,16 +44,29 @@ impl Invocation {
             .collect()
     }
 
-    pub fn hash_string(&self) -> String {
-        let mut s = DefaultHasher::new();
-        self.hash(&mut s);
-        let hash = s.finish();
-        hash.to_string()
+    pub fn out_dir(&self) -> anyhow::Result<Utf8PathBuf> {
+        let dir = self
+            .env
+            .iter()
+            .find(|(key, _)| key.as_str() == "OUT_DIR")
+            .ok_or(anyhow::format_err!("OUT_DIR is not set. {:?}", self))?
+            .1;
+        Ok(Utf8PathBuf::from(dir))
+    }
+
+    pub fn custom_build_output(&self) -> anyhow::Result<Utf8PathBuf> {
+        Ok(self
+            .out_dir()?
+            .parent()
+            .ok_or(anyhow::format_err!("failed get out_dir's parent"))?
+            .join("output"))
     }
 
     pub fn outputs(&self) -> Vec<Utf8PathBuf> {
-        let outputs = if self.outputs.is_empty() {
-            vec![Utf8PathBuf::from(self.hash_string())]
+        let outputs = if self.compile_mode == "run-custom-build" {
+            vec![self
+                .custom_build_output()
+                .expect("out_dir should set for run-custom-build")]
         } else {
             self.outputs
                 .clone()

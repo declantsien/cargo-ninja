@@ -64,9 +64,6 @@ impl Invocation {
     }
 
     pub fn dirs(&self) -> BTreeSet<Utf8PathBuf> {
-        if self.compile_mode == "run-custom-build" {
-            return BTreeSet::new();
-        }
         self.outputs()
             .iter()
             .map(|o| ninja_dir(o))
@@ -99,7 +96,7 @@ impl Invocation {
             let command = match self.compile_mode == "run-custom-build" {
                 true => command
                     .arg(">")
-                    .arg("$$OLDPWD/".to_string() + self.outputs().get(0).unwrap().as_str()),
+                    .arg(self.custom_build_output().expect("sdf").as_str()),
                 false => command,
             };
 
@@ -176,8 +173,8 @@ fn main() -> Result<(), anyhow::Error> {
     std::fs::create_dir_all(build_dir.clone())?;
     with_build_plan(build_dir.clone(), |plan| {
         for i in &plan.invocations {
-            if let Some((_, output_dir)) = i.env.iter().find(|(key, _)| key.as_str() == "OUT_DIR") {
-                std::fs::create_dir_all(Utf8PathBuf::from(output_dir))?;
+            if let Ok(out_dir) = i.out_dir() {
+                std::fs::create_dir_all(out_dir)?;
             }
         }
         let ninja: File = plan.into();
