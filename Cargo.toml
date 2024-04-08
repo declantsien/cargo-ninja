@@ -11,6 +11,8 @@ serde_derive = "1"
 serde_json = "1"
 # ninja-files-data = { git="https://git.sr.ht/~declantsien/ninja-files", branch = "command_cwd"}
 # ninja-files = { git = "https://git.sr.ht/~declantsien/ninja-files", branch = "command_cwd"}
+cargo-util = "0.2"
+cargo-util-schemas = "0.2"
 ninja-files-data.path = "/home/declan/src/ninja-files/lib/data"
 ninja-files.path = "/home/declan/src/ninja-files/"
 snailquote = "0.3"

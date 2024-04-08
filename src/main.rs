@@ -4,6 +4,7 @@ extern crate serde;
 extern crate serde_json;
 
 mod build_plan;
+mod custom_build;
 
 use build_plan::{with_build_plan, BuildPlan, Invocation};
 use camino::Utf8PathBuf;
@@ -103,6 +104,9 @@ impl Invocation {
                     .arg("&&")
                     .arg("touch")
                     .arg(self.outputs().get(0).unwrap().as_str()),
+                // true => command
+                //     .arg(">")
+                //     .arg("$OLDPWD/".to_string() + self.outputs().get(0).unwrap().as_str()),                
                 false => command,
             };
 
