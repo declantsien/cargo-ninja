@@ -1,3 +1,5 @@
+// Cargo build script output parser
+
 #[path = "../custom_build.rs"]
 mod custom_build;
 

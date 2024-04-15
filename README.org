@@ -5,10 +5,11 @@ This project itself should be bootstraped using Cargo.
 Generate `build.ninja` using [Cargo build plan](https://doc.rust-lang.org/cargo/commands/cargo-build.html#option-cargo-build---build-plan).
 
 # Usage
-CARGO_BUILD_SCRIPT_OUTPUT_PARSER=/path/to/a/parser cargo-ninja builddir [--release ..]
+cargo-ninja builddir [--release ..]
 
 # Cargo build.rs output parser
 See [[https://doc.rust-lang.org/cargo/reference/build-scripts.html#outputs-of-the-build-script][Outputs of the Build Script]] .
-There is a parser implementation in Rust ./src/bin/cargo_build_script_output_parser.rs.
+There is a parser implementation in Rust ./src/bin/parser.rs.
+Parser can be overwritted with env `CARGO_BUILD_SCRIPT_OUTPUT_PARSER`
 
   

@@ -100,7 +100,7 @@ impl Invocation {
                     Ok(output) => command.arg(format!(
                         "$$({} {})",
                         std::env::var("CARGO_BUILD_SCRIPT_OUTPUT_PARSER")
-                            .expect("no CARGO_BUILD_SCRIPT_OUTPUT_PARSER provided"),
+                            .unwrap_or("cargo-ninja-parser".to_string()),
                         output
                     )),
                     _ => command,

@@ -19,4 +19,5 @@ thiserror = "1.0"
 anyhow = "1.0"
 
 [[bin]]
-name = "cargo_build_script_output_parser"
+name = "cargo-ninja-parser"
+path = "src/bin/parser.rs"
