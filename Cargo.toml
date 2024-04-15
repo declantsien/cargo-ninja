@@ -9,8 +9,8 @@ default-run = "cargo-ninja"
 serde = "1"
 serde_derive = "1"
 serde_json = "1"
-ninja-files-data = { git="https://git.sr.ht/~declantsien/ninja-files" }
-ninja-files = { git = "https://git.sr.ht/~declantsien/ninja-files" }
+ninja-files-data = { package = "ninja-files-data2", version = "0.1" }
+ninja-files = { package = "ninja-files2", version = "0.2" }
 cargo-util = "0.2"
 cargo-util-schemas = "0.2"
 snailquote = "0.3"
