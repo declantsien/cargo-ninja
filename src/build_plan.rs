@@ -9,15 +9,198 @@
 #![warn(missing_debug_implementations)]
 
 use camino::Utf8PathBuf;
-use std::collections::BTreeMap;
+use cargo_metadata::Metadata;
+use cargo_metadata::MetadataCommand;
+use ninja_files_data::{File, FileBuilder};
+use serde::de;
+use serde::de::Error;
+use std::fmt;
+use std::string::ToString;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::{LazyLock, OnceLock},
+};
+
+use crate::crate_type::CrateType;
+use crate::custom_build::BuildScriptOutput;
+
+static METADATA: LazyLock<Metadata> = LazyLock::new(|| match MetadataCommand::new().exec() {
+    Ok(d) => d,
+    Err(e) => panic!("Metadata Command failed: {e:?}"),
+});
+
+#[allow(dead_code)]
+#[derive(Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub enum TargetKind {
+    Lib(Vec<CrateType>),
+    Bin,
+    Test,
+    Bench,
+    ExampleLib(Vec<CrateType>),
+    ExampleBin,
+    CustomBuild,
+}
+
+impl<'de> de::Deserialize<'de> for TargetKind {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: de::Deserializer<'de>,
+    {
+        use self::TargetKind::*;
+
+        let raw = Vec::<&str>::deserialize(deserializer)?;
+        Ok(match *raw {
+            [] => return Err(D::Error::invalid_length(0, &"at least one target kind")),
+            ["bin"] => Bin,
+            ["example"] => ExampleBin, // FIXME ExampleLib is never created this way
+            ["test"] => Test,
+            ["custom-build"] => CustomBuild,
+            ["bench"] => Bench,
+            ref kinds => Lib(kinds
+                .iter()
+                .cloned()
+                .map(|kind| CrateType::from(&kind.to_string()))
+                .collect()),
+        })
+    }
+}
+
+impl fmt::Debug for TargetKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use self::TargetKind::*;
+        match *self {
+            Lib(ref kinds) => kinds.fmt(f),
+            Bin => "bin".fmt(f),
+            ExampleBin | ExampleLib(_) => "example".fmt(f),
+            Test => "test".fmt(f),
+            CustomBuild => "custom-build".fmt(f),
+            Bench => "bench".fmt(f),
+        }
+    }
+}
+
+#[allow(dead_code)]
+impl TargetKind {
+    pub fn description(&self) -> &'static str {
+        match self {
+            TargetKind::Lib(..) => "lib",
+            TargetKind::Bin => "bin",
+            TargetKind::Test => "integration-test",
+            TargetKind::ExampleBin | TargetKind::ExampleLib(..) => "example",
+            TargetKind::Bench => "bench",
+            TargetKind::CustomBuild => "build-script",
+        }
+    }
+
+    /// Returns whether production of this artifact requires the object files
+    /// from dependencies to be available.
+    ///
+    /// This only returns `false` when all we're producing is an rlib, otherwise
+    /// it will return `true`.
+    pub fn requires_upstream_objects(&self) -> bool {
+        match self {
+            TargetKind::Lib(kinds) | TargetKind::ExampleLib(kinds) => {
+                kinds.iter().any(|k| k.requires_upstream_objects())
+            }
+            _ => true,
+        }
+    }
+
+    /// Returns the arguments suitable for `--crate-type` to pass to rustc.
+    pub fn rustc_crate_types(&self) -> Vec<CrateType> {
+        match self {
+            TargetKind::Lib(kinds) | TargetKind::ExampleLib(kinds) => kinds.clone(),
+            TargetKind::CustomBuild
+            | TargetKind::Bench
+            | TargetKind::Test
+            | TargetKind::ExampleBin
+            | TargetKind::Bin => vec![CrateType::Bin],
+        }
+    }
+}
+
+/// The general "mode" for what to do.
+/// This is used for two purposes. The commands themselves pass this in to
+/// `compile_ws` to tell it the general execution strategy. This influences
+/// the default targets selected. The other use is in the `Unit` struct
+/// to indicate what is being done with a specific target.
+#[derive(Clone, Copy, PartialEq, Debug, Eq, Hash, PartialOrd, Ord)]
+pub enum CompileMode {
+    /// A target being built for a test.
+    Test,
+    /// Building a target with `rustc` (lib or bin).
+    Build,
+    /// Building a target with `rustc` to emit `rmeta` metadata only. If
+    /// `test` is true, then it is also compiled with `--test` to check it like
+    /// a test.
+    Check { test: bool },
+    /// Used to indicate benchmarks should be built. This is not used in
+    /// `Unit`, because it is essentially the same as `Test` (indicating
+    /// `--test` should be passed to rustc) and by using `Test` instead it
+    /// allows some de-duping of Units to occur.
+    Bench,
+    /// A target that will be documented with `rustdoc`.
+
+    /// If `deps` is true, then it will also document all dependencies.
+    /// if `json` is true, the documentation output is in json format.
+    Doc { deps: bool, json: bool },
+    /// A target that will be tested with `rustdoc`.
+    Doctest,
+    /// An example or library that will be scraped for function calls by `rustdoc`.
+    Docscrape,
+    /// A marker for Units that represent the execution of a `build.rs` script.
+    RunCustomBuild,
+}
+
+impl fmt::Display for CompileMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use self::CompileMode::*;
+        let v = match *self {
+            Test => "test",
+            Build => "build",
+            Check { .. } => "check",
+            Bench => "bench",
+            Doc { .. } => "doc",
+            Doctest => "doctest",
+            Docscrape => "docscrape",
+            RunCustomBuild => "run-custom-build",
+        };
+        write!(f, "{}", v)
+    }
+}
+
+impl<'de> de::Deserialize<'de> for CompileMode {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: de::Deserializer<'de>,
+    {
+        use self::CompileMode::*;
+
+        let raw = String::deserialize(deserializer)?;
+        Ok(match raw.as_str() {
+            "test" => Test,
+            "build" => Build,
+            "check" => Check { test: false },
+            "bench" => Bench,
+            "doc" => Doc {
+                deps: false,
+                json: false,
+            },
+            "doctest" => Doctest,
+            "docscrape" => Docscrape,
+            "run-custom-build" => RunCustomBuild,
+            _ => panic!("unknow compile mode {}", raw),
+        })
+    }
+}
 
 /// A tool invocation.
-#[derive(Debug, Deserialize, Clone, Hash)]
+#[derive(Debug, Deserialize, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub struct Invocation {
     pub package_name: String,
     pub package_version: String,
-    pub target_kind: Vec<String>,
-    pub compile_mode: String,
+    pub target_kind: TargetKind,
+    pub compile_mode: CompileMode,
     /// List of invocations this invocation depends on.
     ///
     /// The vector contains indices into the [`BuildPlan::invocations`] list.
@@ -34,7 +217,26 @@ pub struct Invocation {
     pub cwd: Option<Utf8PathBuf>,
 }
 
+#[allow(dead_code)]
 impl Invocation {
+    pub fn is_run_custom_build(&self) -> bool {
+        self.compile_mode == CompileMode::RunCustomBuild
+    }
+
+    pub fn is_workspace_build(&self) -> bool {
+        let workspace_packages = METADATA.workspace_packages();
+
+        workspace_packages
+            .into_iter()
+            .find(|p| {
+                p.name == self.package_name
+                    && p.version.to_string() == self.package_version
+                    && !self.is_run_custom_build()
+                    && !self.is_custom_build()
+            })
+            .is_some()
+    }
+
     pub fn links(&self) -> BTreeMap<Utf8PathBuf, Utf8PathBuf> {
         let links = self.links.clone();
         links
@@ -53,7 +255,7 @@ impl Invocation {
         Ok(Utf8PathBuf::from(dir))
     }
 
-    pub fn custom_build_output(&self) -> anyhow::Result<Utf8PathBuf> {
+    pub fn build_script_output_file(&self) -> anyhow::Result<Utf8PathBuf> {
         Ok(self
             .out_dir()?
             .parent()
@@ -61,10 +263,29 @@ impl Invocation {
             .join("output"))
     }
 
+    pub fn build_script_output(&self) -> anyhow::Result<BuildScriptOutput> {
+        let file = self.build_script_output_file()?;
+        let file = file.into_std_path_buf();
+        // We currently using the same out_dir for rus_custom_build and build
+        let dir = &file
+            .parent()
+            .ok_or(anyhow::format_err!("failed to get output dir"))?;
+        BuildScriptOutput::parse_file(
+            file.as_path(),
+            Some(self.package_name.clone()),
+            &self.package_name,
+            dir,
+            dir,
+            true,
+            true,
+            &None,
+        )
+    }
+
     pub fn outputs(&self) -> Vec<Utf8PathBuf> {
-        let outputs = if self.compile_mode == "run-custom-build" {
+        let outputs = if self.compile_mode == CompileMode::RunCustomBuild {
             vec![self
-                .custom_build_output()
+                .build_script_output_file()
                 .expect("out_dir should set for run-custom-build")]
         } else {
             self.outputs
@@ -74,6 +295,97 @@ impl Invocation {
                 .collect()
         };
         outputs
+    }
+
+    fn kind(&self) -> &TargetKind {
+        &self.target_kind
+    }
+
+    pub fn doctestable(&self) -> bool {
+        match self.kind() {
+            TargetKind::Lib(ref kinds) => kinds.iter().any(|k| {
+                *k == CrateType::Rlib || *k == CrateType::Lib || *k == CrateType::ProcMacro
+            }),
+            _ => false,
+        }
+    }
+
+    pub fn is_lib(&self) -> bool {
+        matches!(self.kind(), TargetKind::Lib(_))
+    }
+
+    pub fn is_dylib(&self) -> bool {
+        match self.kind() {
+            TargetKind::Lib(libs) => libs.iter().any(|l| *l == CrateType::Dylib),
+            _ => false,
+        }
+    }
+
+    pub fn is_cdylib(&self) -> bool {
+        match self.kind() {
+            TargetKind::Lib(libs) => libs.iter().any(|l| *l == CrateType::Cdylib),
+            _ => false,
+        }
+    }
+
+    pub fn is_staticlib(&self) -> bool {
+        match self.kind() {
+            TargetKind::Lib(libs) => libs.iter().any(|l| *l == CrateType::Staticlib),
+            _ => false,
+        }
+    }
+
+    /// Returns whether this target produces an artifact which can be linked
+    /// into a Rust crate.
+    ///
+    /// This only returns true for certain kinds of libraries.
+    pub fn is_linkable(&self) -> bool {
+        match self.kind() {
+            TargetKind::Lib(kinds) => kinds.iter().any(|k| k.is_linkable()),
+            _ => false,
+        }
+    }
+
+    pub fn is_bin(&self) -> bool {
+        *self.kind() == TargetKind::Bin
+    }
+
+    pub fn is_example(&self) -> bool {
+        matches!(
+            self.kind(),
+            TargetKind::ExampleBin | TargetKind::ExampleLib(..)
+        )
+    }
+
+    /// Returns `true` if it is a binary or executable example.
+    /// NOTE: Tests are `false`!
+    pub fn is_executable(&self) -> bool {
+        self.is_bin() || self.is_exe_example()
+    }
+
+    /// Returns `true` if it is an executable example.
+    pub fn is_exe_example(&self) -> bool {
+        // Needed for --all-examples in contexts where only runnable examples make sense
+        matches!(self.kind(), TargetKind::ExampleBin)
+    }
+
+    pub fn is_test(&self) -> bool {
+        *self.kind() == TargetKind::Test
+    }
+    pub fn is_bench(&self) -> bool {
+        *self.kind() == TargetKind::Bench
+    }
+    pub fn is_custom_build(&self) -> bool {
+        *self.kind() == TargetKind::CustomBuild
+    }
+
+    /// Returns the arguments suitable for `--crate-type` to pass to rustc.
+    pub fn rustc_crate_types(&self) -> Vec<CrateType> {
+        self.kind().rustc_crate_types()
+    }
+
+    pub(crate) fn package_name(&self) -> &str {
+        self.package_name.as_str()
     }
 }
 
@@ -91,47 +403,125 @@ impl BuildPlan {
     ///
     /// Build plan output can be obtained by running `cargo build --build-plan`. Generating build
     /// plans for individual targets (tests, examples, etc.) also works.
-    pub fn from_cargo_output<S: AsRef<[u8]>>(output: S) -> serde_json::Result<Self> {
-        serde_json::from_slice(output.as_ref())
-    }
-}
+    pub fn from_cargo_output() -> anyhow::Result<Self> {
+        let mut cmd = std::process::Command::new("cargo");
+        if let Ok(dir) = std::env::current_dir() {
+            cmd.current_dir(dir);
+        }
+        cmd.arg("-Z");
+        cmd.arg("unstable-options");
+        cmd.arg("build");
+        cmd.arg("--build-plan");
+        std::env::args().skip(2).for_each(|arg| {
+            cmd.arg(arg);
+        });
+        cmd.envs(std::env::vars());
 
-pub fn with_build_plan<F: FnMut(BuildPlan) -> Result<(), anyhow::Error>>(
-    build_dir: Option<Utf8PathBuf>,
-    mut f: F,
-) -> Result<(), anyhow::Error> {
-    use std::io::Write;
-
-    let mut cmd = std::process::Command::new("cargo");
-    if let Ok(dir) = std::env::current_dir() {
-        cmd.current_dir(dir);
-    }
-    cmd.arg("-Z");
-    cmd.arg("unstable-options");
-    cmd.arg("build");
-    cmd.arg("--build-plan");
-    std::env::args().skip(2).for_each(|arg| {
-        cmd.arg(arg);
-    });
-    cmd.envs(std::env::vars());
-    if let Some(build_dir) = &build_dir {
+        let build_dir = build_dir()?;
         cmd.env("CARGO_TARGET_DIR", build_dir.as_str());
-    }
 
-    let output = cmd.output().expect("failed to execute process");
+        let output = cmd.output().expect("failed to execute process");
 
-    if output.status.success() {
-        let mut data = output.stdout;
-        if let Some(build_dir) = build_dir {
+        if output.status.success() {
+            let mut data = output.stdout;
             let output = String::from_utf8(data.clone())?;
             let output = output
                 .replace(build_dir.join("debug").as_str(), build_dir.as_str())
                 .replace(build_dir.join("release").as_str(), build_dir.as_str());
             data = output.into_bytes();
+            let plan = serde_json::from_slice(data.as_ref())?;
+
+            return Ok(plan);
         }
-        let plan = BuildPlan::from_cargo_output(&data)?;
-        f(plan)?;
+        Err(anyhow::format_err!(
+            "Cmd {cmd:?} failed: {:?}",
+            &output.stderr
+        ))
     }
-    std::io::stderr().write_all(&output.stderr)?;
-    Ok(())
+
+    pub fn to_ninja<Filter: Fn(&&Invocation) -> bool>(
+        &self,
+        include_custom_build: bool,
+        filter: Filter,
+    ) -> File {
+        let include_builds: Vec<&Invocation> = self.invocations.iter().filter(filter).collect();
+        let mut deps: BTreeSet<usize> = BTreeSet::new();
+        for invocation in &include_builds {
+            collect_deps_recursively(invocation, self, &mut deps, include_custom_build);
+        }
+
+        self.invocations
+            .iter()
+            .enumerate()
+            .fold(FileBuilder::new(), |builder, (i, inv)| {
+                if !include_builds.contains(&inv) && !deps.contains(&i) {
+                    return builder;
+                }
+                let deps: Vec<Utf8PathBuf> = Vec::new();
+                let mut custom_build_output: Option<BuildScriptOutput> = None;
+
+                let deps: Vec<Utf8PathBuf> = inv.deps.iter().fold(deps, |mut all_outputs, i| {
+                    let dep = &self.invocations[*i];
+                    if !dep.is_run_custom_build() {
+                        let mut outputs = dep.outputs();
+                        all_outputs.append(&mut outputs);
+                        let mut links: Vec<Utf8PathBuf> = self.invocations[*i]
+                            .links()
+                            .into_iter()
+                            .map(|(link, _)| link)
+                            .collect();
+                        all_outputs.append(&mut links);
+                    } else {
+                        custom_build_output = dep
+                            .build_script_output()
+                            .map_err(|e| {
+                                eprintln!("Custom build output error: {e:?}");
+                            })
+                            .ok();
+                    }
+                    all_outputs
+                });
+                builder.merge(&inv.ninja_build(i, deps, custom_build_output))
+            })
+            .build()
+            .unwrap()
+    }
+}
+
+pub fn with_build_plan<F: FnMut(&BuildPlan) -> Result<(), anyhow::Error>>(
+    mut f: F,
+) -> Result<(), anyhow::Error> {
+    static BUILD_PLAN: OnceLock<BuildPlan> = OnceLock::new();
+    let plan = BuildPlan::from_cargo_output()?;
+    let plan = BUILD_PLAN.get_or_init(|| plan);
+    f(plan)
+}
+
+fn collect_deps_recursively(
+    invocation: &Invocation,
+    plan: &BuildPlan,
+    deps: &mut BTreeSet<usize>,
+    include_custom_build: bool,
+) {
+    for i in invocation.deps.clone() {
+        let d = plan.invocations.get(i).unwrap();
+        if !include_custom_build && (d.is_run_custom_build() || d.is_custom_build()) {
+            continue;
+        }
+        deps.insert(i);
+        collect_deps_recursively(d, plan, deps, include_custom_build)
+    }
+}
+
+pub fn build_dir() -> Result<Utf8PathBuf, anyhow::Error> {
+    let args = std::env::args().skip(1).take(1).collect::<Vec<String>>();
+    let build_dir = args
+        .get(0)
+        .ok_or(anyhow::format_err!("no build directory specified"))?;
+
+    let build_dir = std::env::current_dir()?.join(build_dir);
+    std::fs::create_dir_all(build_dir.clone())?;
+    let build_dir = Utf8PathBuf::from_path_buf(build_dir)
+        .map_err(|e| anyhow::format_err!("{:?} is not a utf8 path", e))?;
+    Ok(build_dir)
 }

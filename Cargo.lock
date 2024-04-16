@@ -77,13 +77,23 @@ dependencies = [
  "camino",
  "cargo-util",
  "cargo-util-schemas",
- "ninja-files",
- "ninja-files-data",
+ "cargo_metadata",
+ "ninja-files-data2",
+ "ninja-files2",
  "serde",
  "serde_derive",
  "serde_json",
  "snailquote",
  "thiserror",
+]
+
+[[package]]
+name = "cargo-platform"
+version = "0.1.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "24b1f0365a6c6bb4020cd05806fd0d33c44d38046b8bd7f0e40814b9763cabfc"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -123,6 +133,20 @@ dependencies = [
  "toml",
  "unicode-xid",
  "url",
+]
+
+[[package]]
+name = "cargo_metadata"
+version = "0.18.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d886547e41f740c616ae73108f6eb70afe6d940c7bc697cb30f13daec073037"
+dependencies = [
+ "camino",
+ "cargo-platform",
+ "semver",
+ "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]
@@ -471,31 +495,34 @@ dependencies = [
 ]
 
 [[package]]
-name = "ninja-files"
-version = "0.2.0"
-source = "git+https://git.sr.ht/~declantsien/ninja-files#928b76ecba3de62ed816da7340c4205597d7a347"
-dependencies = [
- "ninja-files-cookie",
- "ninja-files-data",
-]
-
-[[package]]
-name = "ninja-files-cookie"
+name = "ninja-files-cookie2"
 version = "0.1.0"
-source = "git+https://git.sr.ht/~declantsien/ninja-files#928b76ecba3de62ed816da7340c4205597d7a347"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee5f439de2c2f608afb6df0397232150903037c3fc42c336312bff208f8d0c1f"
 dependencies = [
  "cookie-factory",
- "ninja-files-data",
+ "ninja-files-data2",
  "os_str_bytes",
 ]
 
 [[package]]
-name = "ninja-files-data"
+name = "ninja-files-data2"
 version = "0.1.0"
-source = "git+https://git.sr.ht/~declantsien/ninja-files#928b76ecba3de62ed816da7340c4205597d7a347"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb044e3fbe7183866bf33d73bea82b786a4d8a19920e0febc2c45720b5b51941"
 dependencies = [
  "bumpalo",
  "camino",
+]
+
+[[package]]
+name = "ninja-files2"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf57ec6f3da648a0726a585ba24bb1571caefae2bb2cffcf66c27118a8b6f7da"
+dependencies = [
+ "ninja-files-cookie2",
+ "ninja-files-data2",
 ]
 
 [[package]]

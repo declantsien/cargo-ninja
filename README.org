@@ -7,9 +7,5 @@ Generate `build.ninja` using [Cargo build plan](https://doc.rust-lang.org/cargo/
 # Usage
 cargo-ninja builddir [--release ..]
 
-# Cargo build.rs output parser
-See [[https://doc.rust-lang.org/cargo/reference/build-scripts.html#outputs-of-the-build-script][Outputs of the Build Script]] .
-There is a parser implementation in Rust ./src/bin/parser.rs.
-Parser can be overwritted with env `CARGO_BUILD_SCRIPT_OUTPUT_PARSER`
 
   

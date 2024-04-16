@@ -1,18 +1,24 @@
+#![feature(lazy_cell)]
+
 #[macro_use]
 extern crate serde_derive;
 extern crate serde;
 extern crate serde_json;
 
 mod build_plan;
+mod crate_type;
+mod custom_build;
 
-use build_plan::{with_build_plan, BuildPlan, Invocation};
+use build_plan::{build_dir, with_build_plan, Invocation};
 use camino::Utf8PathBuf;
+use custom_build::{add_custom_flags, BuildScriptOutput};
 use ninja_files::format::write_ninja_file;
 use ninja_files_data::{BuildBuilder, CommandBuilder, File, FileBuilder, RuleBuilder};
 use snailquote::escape;
 use std::collections::BTreeSet;
 
 const BUILD_NINJA: &str = "build.ninja";
+const CONFIGURE_NINJA: &str = "configure.ninja";
 const LINK_RULE_ID: &str = "link";
 const ENSURE_DIR_ALL_RULE_ID: &str = "ensure_dir_all";
 
@@ -52,13 +58,22 @@ fn ninja_dir(p: &Utf8PathBuf) -> Option<Utf8PathBuf> {
 }
 
 impl Invocation {
+    pub fn description(&self) -> String {
+        format!(
+            "{} target {} for {}@{}",
+            self.compile_mode,
+            self.target_kind.description(),
+            self.package_name,
+            self.package_version
+        )
+    }
     pub fn rule_id(&self, indice: usize) -> String {
         format!(
             "{}-{}-{}-{}-{}",
             indice,
             self.package_name,
             self.package_version,
-            self.target_kind.get(0).unwrap(),
+            self.target_kind.description(),
             self.compile_mode
         )
     }
@@ -75,7 +90,12 @@ impl Invocation {
             })
     }
 
-    pub fn ninja_build(&self, indice: usize, deps: Vec<Utf8PathBuf>) -> FileBuilder {
+    pub fn ninja_build(
+        &self,
+        indice: usize,
+        deps: Vec<Utf8PathBuf>,
+        build_script_output: Option<BuildScriptOutput>,
+    ) -> FileBuilder {
         let rule_id = self.rule_id(indice);
         let rule = {
             let command = CommandBuilder::new(self.program.clone());
@@ -91,27 +111,26 @@ impl Invocation {
             let command = self.env.iter().fold(command, |cmd, env| {
                 cmd.env(env.0.as_str(), escape(env.1.as_str()))
             });
+            let command = add_custom_flags(
+                command,
+                build_script_output.as_ref(),
+                self.package_name.as_str(),
+                self,
+            );
 
-            let command = match self.compile_mode == "run-custom-build" {
+            let command = match self.is_run_custom_build() {
                 true => command
                     .arg(">")
-                    .arg(self.custom_build_output().unwrap().as_str()),
-                false => match self.custom_build_output() {
-                    Ok(output) => command.arg(format!(
-                        "$$({} {})",
-                        std::env::var("CARGO_BUILD_SCRIPT_OUTPUT_PARSER")
-                            .unwrap_or("cargo-ninja-parser".to_string()),
-                        output
-                    )),
-                    _ => command,
-                },
+                    .arg(self.build_script_output_file().unwrap().as_str()),
+                _ => command,
             };
 
             RuleBuilder::new(command)
         };
         let build = BuildBuilder::new(rule_id.clone());
-        // println!("deps: {deps:?}");
         let build = deps.iter().fold(build, |build, d| build.explicit(d));
+
+        let build = build.variable("description", self.description());
 
         let file = FileBuilder::new().rule(rule_id.clone(), rule);
         let file = self.outputs().iter().fold(file, |builder, o| {
@@ -144,49 +163,49 @@ impl Invocation {
     }
 }
 
-impl Into<File> for BuildPlan {
-    fn into(self) -> File {
-        self.invocations
-            .iter()
-            .enumerate()
-            .fold(FileBuilder::new(), |builder, (i, inv)| {
-                let deps: Vec<Utf8PathBuf> = Vec::new();
-
-                let deps: Vec<Utf8PathBuf> = inv.deps.iter().fold(deps, |mut all_outputs, i| {
-                    let mut outputs = self.invocations[*i].outputs();
-                    all_outputs.append(&mut outputs);
-                    let mut links: Vec<Utf8PathBuf> = self.invocations[*i]
-                        .links()
-                        .into_iter()
-                        .map(|(link, _)| link)
-                        .collect();
-                    all_outputs.append(&mut links);
-                    all_outputs
-                });
-                builder.merge(&inv.ninja_build(i, deps))
-            })
-            .build()
-            .unwrap()
-    }
-}
-
-fn main() -> Result<(), anyhow::Error> {
-    let args = std::env::args().skip(1).take(1).collect::<Vec<String>>();
-    let build_dir = args
-        .get(0)
-        .ok_or(anyhow::format_err!("no build directory specified"))?;
-
-    let build_dir = std::env::current_dir()?.join(build_dir);
-    std::fs::create_dir_all(build_dir.clone())?;
-    let build_dir = Utf8PathBuf::from_path_buf(build_dir)
-        .map_err(|e| anyhow::format_err!("{:?} is not a utf8 path", e))?;
-    with_build_plan(Some(build_dir.clone()), |plan| {
+fn configure() -> Result<(), anyhow::Error> {
+    let build_dir = build_dir()?;
+    with_build_plan(|plan| {
         for i in &plan.invocations {
             if let Ok(out_dir) = i.out_dir() {
                 std::fs::create_dir_all(out_dir)?;
             }
         }
-        let ninja: File = plan.into();
+        // let ninja: File = plan.into();
+        let ninja: File = plan.to_ninja(true, |i| i.is_run_custom_build());
+        let file = std::fs::File::create(build_dir.join(CONFIGURE_NINJA))?;
+        write_ninja_file(&ninja, file)?;
+        Ok(())
+    })?;
+
+    use std::io::{self, Write};
+    use std::process::Command;
+
+    let output = Command::new("ninja")
+        .current_dir(build_dir)
+        .arg("-f")
+        .arg(CONFIGURE_NINJA)
+        .output()
+        .expect("failed to execute process");
+
+    if output.status.success() {}
+    io::stdout().write_all(&output.stdout).unwrap();
+    io::stderr().write_all(&output.stderr).unwrap();
+
+    Ok(())
+}
+
+fn main() -> Result<(), anyhow::Error> {
+    let _ = configure()?;
+    let build_dir = build_dir()?;
+    with_build_plan(|plan| {
+        for i in &plan.invocations {
+            if let Ok(out_dir) = i.out_dir() {
+                std::fs::create_dir_all(out_dir)?;
+            }
+        }
+        // let ninja: File = plan.into();
+        let ninja: File = plan.to_ninja(false, |i| i.is_workspace_build());
         let file = std::fs::File::create(build_dir.join(BUILD_NINJA))?;
         write_ninja_file(&ninja, file)?;
         Ok(())

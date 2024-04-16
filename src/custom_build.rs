@@ -18,12 +18,15 @@
 use anyhow::bail;
 use cargo_util::paths;
 use cargo_util_schemas::manifest::RustVersion;
+use ninja_files_data::CommandBuilder;
 use std::path::{Path, PathBuf};
 use std::str::{self, FromStr};
 
+use crate::build_plan::Invocation;
+
 /// Contains the parsed output of a custom build script.
 #[derive(Clone, Debug, Hash, Default)]
-pub struct BuildOutput {
+pub struct BuildScriptOutput {
     /// Paths to pass to rustc with the `-L` flag.
     pub library_paths: Vec<PathBuf>,
     /// Names and link kinds of libraries, suitable for the `-l` flag.
@@ -89,7 +92,22 @@ pub enum LinkArgTarget {
     Example,
 }
 
-impl BuildOutput {
+impl LinkArgTarget {
+    /// Checks if this link type applies to a given [`Target`].
+    pub fn applies_to(&self, target: &Invocation) -> bool {
+        match self {
+            LinkArgTarget::All => true,
+            LinkArgTarget::Cdylib => target.is_cdylib(),
+            LinkArgTarget::Bin => target.is_bin(),
+            LinkArgTarget::SingleBin(name) => target.is_bin() && target.package_name() == name,
+            LinkArgTarget::Test => target.is_test(),
+            LinkArgTarget::Bench => target.is_bench(),
+            LinkArgTarget::Example => target.is_exe_example(),
+        }
+    }
+}
+
+impl BuildScriptOutput {
     /// Like [`BuildOutput::parse`] but from a file path.
     pub fn parse_file(
         path: &Path,
@@ -100,9 +118,9 @@ impl BuildOutput {
         extra_check_cfg: bool,
         nightly_features_allowed: bool,
         msrv: &Option<RustVersion>,
-    ) -> anyhow::Result<BuildOutput> {
+    ) -> anyhow::Result<BuildScriptOutput> {
         let contents = paths::read_bytes(path)?;
-        BuildOutput::parse(
+        BuildScriptOutput::parse(
             &contents,
             library_name,
             pkg_descr,
@@ -131,7 +149,7 @@ impl BuildOutput {
         extra_check_cfg: bool,
         nightly_features_allowed: bool,
         msrv: &Option<RustVersion>,
-    ) -> anyhow::Result<BuildOutput> {
+    ) -> anyhow::Result<BuildScriptOutput> {
         let mut library_paths = Vec::new();
         let mut library_links = Vec::new();
         let mut linker_args = Vec::new();
@@ -279,7 +297,7 @@ impl BuildOutput {
             // Keep in sync with TargetConfig::parse_links_overrides.
             match key {
                 "rustc-flags" => {
-                    let (paths, links) = BuildOutput::parse_rustc_flags(&value, &whence)?;
+                    let (paths, links) = BuildScriptOutput::parse_rustc_flags(&value, &whence)?;
                     library_links.extend(links.into_iter());
                     library_paths.extend(paths.into_iter());
                 }
@@ -331,7 +349,7 @@ impl BuildOutput {
                     }
                 }
                 "rustc-env" => {
-                    let (key, val) = BuildOutput::parse_rustc_env(&value, &whence)?;
+                    let (key, val) = BuildScriptOutput::parse_rustc_env(&value, &whence)?;
                     // Build scripts aren't allowed to set RUSTC_BOOTSTRAP.
                     // See https://github.com/rust-lang/cargo/issues/7088.
                     if key == "RUSTC_BOOTSTRAP" {
@@ -396,7 +414,7 @@ impl BuildOutput {
             }
         }
 
-        Ok(BuildOutput {
+        Ok(BuildScriptOutput {
             library_paths,
             library_links,
             linker_args,
@@ -473,7 +491,7 @@ impl BuildOutput {
 impl BuildDeps {
     /// Creates a build script dependency information from a previous
     /// build script output path and the content.
-    pub fn new(output_file: &Path, output: Option<&BuildOutput>) -> BuildDeps {
+    pub fn new(output_file: &Path, output: Option<&BuildScriptOutput>) -> BuildDeps {
         BuildDeps {
             build_script_output: output_file.to_path_buf(),
             rerun_if_changed: output
@@ -486,4 +504,78 @@ impl BuildDeps {
                 .unwrap_or_default(),
         }
     }
+}
+
+/// Adds extra rustc flags and environment variables collected from the output
+/// of a build-script to the command to execute, include custom environment
+/// variables and `cfg`.
+pub fn add_custom_flags(
+    cmd: CommandBuilder,
+    output: Option<&BuildScriptOutput>,
+    package_name: &str,
+    target: &Invocation,
+) -> CommandBuilder {
+    if output.is_none() {
+        return cmd;
+    }
+    let output = output.unwrap();
+
+    let cmd = output
+        .cfgs
+        .iter()
+        .fold(cmd, |cmd, cfg| cmd.arg("--cfg").arg(cfg.as_str()));
+
+    let cmd = output
+        .check_cfgs
+        .iter()
+        .enumerate()
+        .fold(cmd, |mut cmd, (i, cfg)| {
+            if i == 0 {
+                cmd = cmd.arg("-Zunstable-options");
+            }
+            cmd.arg("--check-cfg").arg(cfg.as_str())
+        });
+
+    let cmd = output
+        .env
+        .iter()
+        .fold(cmd, |cmd, (name, value)| cmd.env(name, value));
+
+    let mut cmd = output.library_paths.iter().fold(cmd, |cmd, path| {
+        cmd.arg("-L").arg(path.to_string_lossy().into_owned())
+    });
+
+    let pass_l_flag = target.is_lib();
+    if pass_l_flag {
+        cmd = output
+            .library_links
+            .iter()
+            .fold(cmd, |cmd, name| cmd.arg("-l").arg(name.as_str()));
+    }
+
+    let cmd = output.linker_args.iter().fold(cmd, |cmd, (lt, arg)| {
+        // There was an unintentional change where cdylibs were
+        // allowed to be passed via transitive dependencies. This
+        // clause should have been kept in the `if` block above. For
+        // now, continue allowing it for cdylib only.
+        // See https://github.com/rust-lang/cargo/issues/9562
+        if lt.applies_to(target) && *lt == LinkArgTarget::Cdylib {
+            return cmd.arg("-C").arg(format!("link-arg={}", arg));
+        }
+        cmd
+    });
+
+    output.metadata.iter().fold(cmd, |cmd, (key, value)| {
+        cmd.env(
+            &format!("DEP_{}_{}", envify(package_name), envify(key)),
+            value,
+        )
+    })
+}
+
+fn envify(s: &str) -> String {
+    s.chars()
+        .flat_map(|c| c.to_uppercase())
+        .map(|c| if c == '-' { '_' } else { c })
+        .collect()
 }
