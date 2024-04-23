@@ -6,6 +6,7 @@ extern crate serde;
 extern crate serde_json;
 
 mod build_plan;
+mod cli;
 mod crate_type;
 mod custom_build;
 

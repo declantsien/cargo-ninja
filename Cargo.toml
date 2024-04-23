@@ -17,5 +17,5 @@ cargo-util = "0.2"
 cargo-util-schemas = "0.2"
 snailquote = "0.3"
 camino = { version = "1.1.4", features = ["serde1"] }
-thiserror = "1.0"
 anyhow = "1.0"
+clap = { version = "4.5", features = ["cargo"] }

@@ -15,8 +15,8 @@ use ninja_files::format::write_ninja_file;
 use ninja_files_data::{File, FileBuilder};
 use serde::de;
 use serde::de::Error;
-use std::fmt;
 use std::collections::hash_map::DefaultHasher;
+use std::fmt;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::string::ToString;
@@ -25,6 +25,8 @@ use std::{
     sync::{LazyLock, OnceLock},
 };
 
+use crate::cli;
+use crate::cli::args_for_cargo;
 use crate::crate_type::CrateType;
 use crate::custom_build::BuildScriptOutput;
 
@@ -426,7 +428,7 @@ impl BuildPlan {
         cmd.arg("unstable-options");
         cmd.arg("build");
         cmd.arg("--build-plan");
-        std::env::args().skip(2).for_each(|arg| {
+        args_for_cargo().into_iter().for_each(|arg| {
             cmd.arg(arg);
         });
         cmd.envs(std::env::vars());
@@ -457,10 +459,8 @@ impl BuildPlan {
 
             return Ok(plan);
         }
-        Err(anyhow::format_err!(
-            "Cmd {cmd:?} failed: {:?}",
-            &output.stderr
-        ))
+        let error = String::from_utf8(output.stderr)?;
+        Err(anyhow::format_err!("{error}"))
     }
 
     pub fn to_ninja<Filter: Fn(&&Invocation) -> bool>(
@@ -538,11 +538,7 @@ fn collect_deps_recursively(
 }
 
 pub fn build_dir() -> Result<Utf8PathBuf, anyhow::Error> {
-    let args = std::env::args().skip(1).take(1).collect::<Vec<String>>();
-    let build_dir = args
-        .get(0)
-        .ok_or(anyhow::format_err!("no build directory specified"))?;
-
+    let build_dir = cli::build_dir()?;
     let build_dir = std::env::current_dir()?.join(build_dir);
     std::fs::create_dir_all(build_dir.clone())?;
     let build_dir = Utf8PathBuf::from_path_buf(build_dir)
