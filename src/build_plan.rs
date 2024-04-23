@@ -280,6 +280,7 @@ impl Invocation {
         let file = self.build_script_output_file()?;
         let file = file.into_std_path_buf();
         if !file.exists() {
+            //TODO how to run these in parallel
             run_build_script(&self)?;
         }
         // We currently using the same out_dir for rus_custom_build and build

@@ -1,13 +1,16 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::OnceLock};
 
-use clap::{arg, ArgAction};
+use clap::{arg, ArgAction, ArgMatches};
 
 // invoked as cargo plugin
 fn from_cargo() -> bool {
-    // oncelock?
-    std::env::args()
-        .next()
-        .map_or(false, |name| name == ("cargo"))
+    static FROM_CARGO: OnceLock<bool> = OnceLock::new();
+    *FROM_CARGO.get_or_init(|| {
+        std::env::args()
+            .skip(1)
+            .next()
+            .map_or(false, |name| name == "ninja")
+    })
 }
 
 fn cli() -> clap::Command {
@@ -35,8 +38,22 @@ pub fn args_for_cargo() -> Vec<String> {
         })
 }
 
-pub fn parse() -> clap::ArgMatches {
-    cli().get_matches()
+fn with_matches<P, F>(mut f: F) -> Result<P, anyhow::Error>
+where
+    F: FnMut(&ArgMatches) -> Result<P, anyhow::Error>,
+{
+    static MATCHES: OnceLock<ArgMatches> = OnceLock::new();
+    let matches = MATCHES.get_or_init(|| cli().get_matches());
+
+    if from_cargo() {
+        let matches = match matches.subcommand() {
+            Some(("ninja", matches)) => matches,
+            _ => unreachable!("clap should ensure we don't get here"),
+        };
+        return f(matches);
+    }
+
+    f(matches)
 }
 
 fn cmd() -> clap::Command {
@@ -83,8 +100,10 @@ fn cmd() -> clap::Command {
 }
 
 pub fn build_dir() -> anyhow::Result<PathBuf> {
-    parse()
-        .get_one::<std::path::PathBuf>("BUILD_DIR")
-        .map(|p| p.clone())
-        .ok_or(anyhow::format_err!("BUILD_DIR None"))
+    with_matches(|matches| {
+        matches
+            .get_one::<std::path::PathBuf>("BUILD_DIR")
+            .map(|p| p.clone())
+            .ok_or(anyhow::format_err!("BUILD_DIR None"))
+    })
 }
