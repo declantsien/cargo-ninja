@@ -1,2 +1,4 @@
-- Specify .dep file, should be easy. Should be easy
+- Specify .dep file, should be easy.
+- Add ninja rule to invoke itself
+- Apply cargo build script output rebuild if changed
 ...  
