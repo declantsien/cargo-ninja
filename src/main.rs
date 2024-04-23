@@ -18,7 +18,6 @@ use snailquote::escape;
 use std::collections::BTreeSet;
 
 const BUILD_NINJA: &str = "build.ninja";
-const CONFIGURE_NINJA: &str = "configure.ninja";
 const LINK_RULE_ID: &str = "link";
 const ENSURE_DIR_ALL_RULE_ID: &str = "ensure_dir_all";
 
@@ -163,40 +162,7 @@ impl Invocation {
     }
 }
 
-fn configure() -> Result<(), anyhow::Error> {
-    let build_dir = build_dir()?;
-    with_build_plan(|plan| {
-        for i in &plan.invocations {
-            if let Ok(out_dir) = i.out_dir() {
-                std::fs::create_dir_all(out_dir)?;
-            }
-        }
-        // let ninja: File = plan.into();
-        let ninja: File = plan.to_ninja(true, |i| i.is_run_custom_build());
-        let file = std::fs::File::create(build_dir.join(CONFIGURE_NINJA))?;
-        write_ninja_file(&ninja, file)?;
-        Ok(())
-    })?;
-
-    use std::io::{self, Write};
-    use std::process::Command;
-
-    let output = Command::new("ninja")
-        .current_dir(build_dir)
-        .arg("-f")
-        .arg(CONFIGURE_NINJA)
-        .output()
-        .expect("failed to execute process");
-
-    if output.status.success() {}
-    io::stdout().write_all(&output.stdout).unwrap();
-    io::stderr().write_all(&output.stderr).unwrap();
-
-    Ok(())
-}
-
 fn main() -> Result<(), anyhow::Error> {
-    let _ = configure()?;
     let build_dir = build_dir()?;
     with_build_plan(|plan| {
         for i in &plan.invocations {

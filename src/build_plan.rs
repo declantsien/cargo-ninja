@@ -11,10 +11,14 @@
 use camino::Utf8PathBuf;
 use cargo_metadata::Metadata;
 use cargo_metadata::MetadataCommand;
+use ninja_files::format::write_ninja_file;
 use ninja_files_data::{File, FileBuilder};
 use serde::de;
 use serde::de::Error;
 use std::fmt;
+use std::hash::DefaultHasher;
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::string::ToString;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -219,6 +223,13 @@ pub struct Invocation {
 
 #[allow(dead_code)]
 impl Invocation {
+    fn hash_string(&self) -> String {
+        let mut s = DefaultHasher::new();
+        (*self).hash(&mut s);
+        let hash = s.finish();
+        hash.to_string()
+    }
+
     pub fn is_run_custom_build(&self) -> bool {
         self.compile_mode == CompileMode::RunCustomBuild
     }
@@ -266,6 +277,9 @@ impl Invocation {
     pub fn build_script_output(&self) -> anyhow::Result<BuildScriptOutput> {
         let file = self.build_script_output_file()?;
         let file = file.into_std_path_buf();
+        if !file.exists() {
+            run_build_script(&self)?;
+        }
         // We currently using the same out_dir for rus_custom_build and build
         let dir = &file
             .parent()
@@ -429,6 +443,16 @@ impl BuildPlan {
                 .replace(build_dir.join("debug").as_str(), build_dir.as_str())
                 .replace(build_dir.join("release").as_str(), build_dir.as_str());
             data = output.into_bytes();
+            // these dirs are created when invoke cargo build --build-plan
+            let cargo_debug_dir = build_dir.join("debug");
+            if cargo_debug_dir.exists() {
+                std::fs::remove_dir_all(cargo_debug_dir)?;
+            }
+            let cargo_release_dir = build_dir.join("release");
+            if cargo_release_dir.exists() {
+                std::fs::remove_dir_all(cargo_release_dir)?;
+            }
+
             let plan = serde_json::from_slice(data.as_ref())?;
 
             return Ok(plan);
@@ -524,4 +548,39 @@ pub fn build_dir() -> Result<Utf8PathBuf, anyhow::Error> {
     let build_dir = Utf8PathBuf::from_path_buf(build_dir)
         .map_err(|e| anyhow::format_err!("{:?} is not a utf8 path", e))?;
     Ok(build_dir)
+}
+
+fn run_build_script(inv: &Invocation) -> Result<(), anyhow::Error> {
+    let build_dir = build_dir()?;
+    let dir = build_dir.join(".run_build_script");
+    std::fs::create_dir_all(dir.clone())?;
+    let ninja_file = dir.join(inv.hash_string());
+    if !ninja_file.exists() {
+        with_build_plan(|plan| {
+            for i in &plan.invocations {
+                if let Ok(out_dir) = i.out_dir() {
+                    std::fs::create_dir_all(out_dir)?;
+                }
+            }
+            let ninja: File = plan.to_ninja(true, |i| i == &inv);
+            let file = std::fs::File::create(ninja_file.clone())?;
+            write_ninja_file(&ninja, file)?;
+            Ok(())
+        })?;
+    }
+
+    use std::io::{self, Write};
+    use std::process::Command;
+
+    let output = Command::new("ninja")
+        .arg("-f")
+        .arg(ninja_file)
+        .output()
+        .expect("failed to execute process");
+
+    if output.status.success() {}
+    io::stdout().write_all(&output.stdout).unwrap();
+    io::stderr().write_all(&output.stderr).unwrap();
+
+    Ok(())
 }
