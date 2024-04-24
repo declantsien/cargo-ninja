@@ -267,6 +267,39 @@ impl Invocation {
             .1;
         Ok(Utf8PathBuf::from(dir))
     }
+    pub fn extra_filename(&self) -> anyhow::Result<String> {
+        self.args
+            .iter()
+            .find(|arg| arg.starts_with("extra-filename"))
+            .and_then(|arg| {
+                let tmp: Vec<&str> = arg.split("=").map(|s| s).collect();
+                tmp.get(1).map(|n| n.to_string())
+            })
+            .ok_or(anyhow::format_err!("failed to find extra-filename in args"))
+    }
+
+    pub fn dep_info_file(&self) -> anyhow::Result<Utf8PathBuf> {
+        let extra_filename = self.extra_filename()?;
+        let build_dir = build_dir()?;
+        let package_name = self.package_name.clone().replace("-", "_");
+        match (&self.target_kind, self.compile_mode) {
+            (TargetKind::CustomBuild, CompileMode::Build) => {
+                let file = format!(
+                    "build/{package_name}{extra_filename}/build_script_build{extra_filename}.d"
+                );
+                let file = build_dir.join(file);
+                Ok(file)
+            }
+            (TargetKind::CustomBuild, CompileMode::RunCustomBuild) => {
+                Err(anyhow::format_err!("todo"))
+            }
+            _ => {
+                let file = format!("deps/{package_name}{extra_filename}.d");
+                let file = build_dir.join(file);
+                Ok(file)
+            }
+        }
+    }
 
     pub fn build_script_output_file(&self) -> anyhow::Result<Utf8PathBuf> {
         Ok(self

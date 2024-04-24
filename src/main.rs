@@ -125,12 +125,15 @@ impl Invocation {
                 _ => command,
             };
 
-            RuleBuilder::new(command)
+            RuleBuilder::new(command).variable("deps", "gcc")
         };
         let build = BuildBuilder::new(rule_id.clone());
         let build = deps.iter().fold(build, |build, d| build.explicit(d));
 
-        let build = build.variable("description", self.description());
+        let mut build = build.variable("description", self.description());
+        if let Some(depfile) = self.dep_info_file().ok() {
+            build = build.variable("depfile", depfile);
+        }
 
         let file = FileBuilder::new().rule(rule_id.clone(), rule);
         let file = self.outputs().iter().fold(file, |builder, o| {
