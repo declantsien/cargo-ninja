@@ -25,9 +25,13 @@ fn cli() -> clap::Command {
 }
 pub fn args_for_cargo() -> Vec<String> {
     let skip = if from_cargo() { 2 } else { 1 };
-    std::env::args()
-        .skip(skip)
-        .fold(Vec::new(), |mut acc, arg| {
+    std::env::args().skip(skip).fold(
+        vec![
+            "-Zunstable-options".to_string(),
+            "build".to_string(),
+            "--build-plan".to_string(),
+        ],
+        |mut acc, arg| {
             if !build_dir()
                 .ok()
                 .map_or(false, |dir| PathBuf::from(arg.clone()) == dir)
@@ -35,7 +39,8 @@ pub fn args_for_cargo() -> Vec<String> {
                 acc.push(arg)
             }
             acc
-        })
+        },
+    )
 }
 
 fn with_matches<P, F>(mut f: F) -> Result<P, anyhow::Error>

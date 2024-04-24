@@ -1,4 +1,5 @@
-- Specify .dep file, should be easy.
-- Add ninja rule to invoke itself
-- Apply cargo build script output rebuild if changed
-...  
+- [X] Specify .dep file, should be easy.
+- [X] Add ninja rule to invoke itself
+- [ ] Apply cargo build script output rebuild if changed
+- [ ] use generated build-plan.json as depfile for build.ninja
+...

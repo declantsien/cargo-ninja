@@ -458,10 +458,6 @@ impl BuildPlan {
         if let Ok(dir) = std::env::current_dir() {
             cmd.current_dir(dir);
         }
-        cmd.arg("-Z");
-        cmd.arg("unstable-options");
-        cmd.arg("build");
-        cmd.arg("--build-plan");
         args_for_cargo().into_iter().for_each(|arg| {
             cmd.arg(arg);
         });
@@ -501,7 +497,7 @@ impl BuildPlan {
         &self,
         include_custom_build: bool,
         filter: Filter,
-    ) -> File {
+    ) -> FileBuilder {
         let include_builds: Vec<&Invocation> = self.invocations.iter().filter(filter).collect();
         let mut deps: BTreeSet<usize> = BTreeSet::new();
         for invocation in &include_builds {
@@ -541,8 +537,6 @@ impl BuildPlan {
                 });
                 builder.merge(&inv.ninja_build(i, deps, custom_build_output))
             })
-            .build()
-            .unwrap()
     }
 }
 
@@ -581,19 +575,24 @@ pub fn build_dir() -> Result<Utf8PathBuf, anyhow::Error> {
 }
 
 fn run_build_script(inv: &Invocation) -> Result<(), anyhow::Error> {
-    let build_dir = build_dir()?;
-    let dir = build_dir.join(".run_build_script");
-    std::fs::create_dir_all(dir.clone())?;
-    let ninja_file = dir.join(inv.hash_string());
-    if !ninja_file.exists() {
+    let out_dir = inv.out_dir()?;
+    let dir = out_dir
+        .parent()
+        .ok_or(anyhow::format_err!("failed to resolve out_dir parent"))?;
+    std::fs::create_dir_all(dir)?;
+    let file = dir.join("build.ninja");
+    if !file.exists() {
         with_build_plan(|plan| {
             for i in &plan.invocations {
                 if let Ok(out_dir) = i.out_dir() {
                     std::fs::create_dir_all(out_dir)?;
                 }
             }
-            let ninja: File = plan.to_ninja(true, |i| i == &inv);
-            let file = std::fs::File::create(ninja_file.clone())?;
+            let ninja: File = plan
+                .to_ninja(true, |i| i == &inv)
+                .build()
+                .map_err(|e| anyhow::format_err!("failed to build ninja file: {e:?}"))?;
+            let file = std::fs::File::create(file.clone())?;
             write_ninja_file(&ninja, file)?;
             Ok(())
         })?;
@@ -604,7 +603,7 @@ fn run_build_script(inv: &Invocation) -> Result<(), anyhow::Error> {
 
     let output = Command::new("ninja")
         .arg("-f")
-        .arg(ninja_file)
+        .arg(file)
         .output()
         .expect("failed to execute process");
 

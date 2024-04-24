@@ -19,6 +19,7 @@ use snailquote::escape;
 use std::collections::BTreeSet;
 
 const BUILD_NINJA: &str = "build.ninja";
+const CONFIGURE_RULE: &str = "configure";
 const LINK_RULE_ID: &str = "link";
 const ENSURE_DIR_ALL_RULE_ID: &str = "ensure_dir_all";
 
@@ -97,7 +98,7 @@ impl Invocation {
         build_script_output: Option<BuildScriptOutput>,
     ) -> FileBuilder {
         let rule_id = self.rule_id(indice);
-        let rule = {
+        let mut rule = {
             let command = CommandBuilder::new(self.program.clone());
             let command = command.cwd(self.cwd.clone());
 
@@ -125,13 +126,14 @@ impl Invocation {
                 _ => command,
             };
 
-            RuleBuilder::new(command).variable("deps", "gcc")
+            RuleBuilder::new(command)
         };
         let build = BuildBuilder::new(rule_id.clone());
         let build = deps.iter().fold(build, |build, d| build.explicit(d));
 
         let mut build = build.variable("description", self.description());
         if let Some(depfile) = self.dep_info_file().ok() {
+            rule = rule.variable("deps", "gcc");
             build = build.variable("depfile", depfile);
         }
 
@@ -166,6 +168,33 @@ impl Invocation {
     }
 }
 
+fn configure() -> anyhow::Result<FileBuilder> {
+    let program_name = std::env::args()
+        .next()
+        .ok_or(anyhow::format_err!("failed to find program name"))?;
+    let configure_rule = {
+        let mut command = CommandBuilder::new(program_name.clone());
+        if let Ok(cwd) = std::env::current_dir() {
+            let cwd = Utf8PathBuf::from_path_buf(cwd).ok();
+            command = command.cwd(cwd);
+        }
+        let command = std::env::args().skip(1).fold(command, |cmd, arg| {
+            cmd.arg(escape(arg.as_str()).into_owned())
+        });
+        let command = std::env::vars().fold(command, |cmd, env| {
+            cmd.env(env.0.as_str(), escape(env.1.as_str()))
+        });
+        RuleBuilder::new(command).generator(true)
+    };
+
+    let configure_build = { BuildBuilder::new(CONFIGURE_RULE) };
+
+    let builder = FileBuilder::new()
+        .rule(CONFIGURE_RULE, configure_rule)
+        .output(BUILD_NINJA, configure_build);
+    Ok(builder)
+}
+
 fn main() -> Result<(), anyhow::Error> {
     let build_dir = build_dir()?;
     with_build_plan(|plan| {
@@ -174,8 +203,10 @@ fn main() -> Result<(), anyhow::Error> {
                 std::fs::create_dir_all(out_dir)?;
             }
         }
-        // let ninja: File = plan.into();
-        let ninja: File = plan.to_ninja(false, |i| i.is_workspace_build());
+        let ninja: File = configure()?
+            .merge(&plan.to_ninja(false, |i| i.is_workspace_build()))
+            .build()
+            .map_err(|e| anyhow::format_err!("failed to build ninja file: {e:?}"))?;
         let file = std::fs::File::create(build_dir.join(BUILD_NINJA))?;
         write_ninja_file(&ninja, file)?;
         Ok(())
