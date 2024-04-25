@@ -1,4 +1,5 @@
-use std::{path::PathBuf, sync::OnceLock};
+use camino::Utf8PathBuf;
+use std::sync::OnceLock;
 
 use clap::{arg, ArgAction, ArgMatches};
 
@@ -34,7 +35,7 @@ pub fn args_for_cargo() -> Vec<String> {
         |mut acc, arg| {
             if !build_dir()
                 .ok()
-                .map_or(false, |dir| PathBuf::from(arg.clone()) == dir)
+                .map_or(false, |dir| Utf8PathBuf::from(arg.clone()) == dir)
             {
                 acc.push(arg)
             }
@@ -66,7 +67,7 @@ fn cmd() -> clap::Command {
         .about("Generate `build.ninja` for `cargo build`.")
         .arg(
             arg!(<BUILD_DIR> "Where to put the generated `build.ninja`")
-                .value_parser(clap::value_parser!(std::path::PathBuf)),
+                .value_parser(clap::value_parser!(Utf8PathBuf)),
         )
         .arg(arg!(-Z <FLAG> "Unstable (nightly-only) flags to Cargo, see 'cargo -Z help' for details)")
             .action(ArgAction::Append))
@@ -112,10 +113,10 @@ fn cmd() -> clap::Command {
         .after_help("Run `cargo help build` for more detailed information.")
 }
 
-pub fn build_dir() -> anyhow::Result<PathBuf> {
+pub fn build_dir() -> anyhow::Result<Utf8PathBuf> {
     with_matches(|matches| {
         matches
-            .get_one::<std::path::PathBuf>("BUILD_DIR")
+            .get_one::<Utf8PathBuf>("BUILD_DIR")
             .map(|p| p.clone())
             .ok_or(anyhow::format_err!("BUILD_DIR None"))
     })

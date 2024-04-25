@@ -29,6 +29,7 @@ use crate::cli;
 use crate::cli::args_for_cargo;
 use crate::crate_type::CrateType;
 use crate::custom_build::BuildScriptOutput;
+use crate::rustc_config::rustc;
 
 static METADATA: LazyLock<Metadata> = LazyLock::new(|| match MetadataCommand::new().exec() {
     Ok(d) => d,
@@ -268,7 +269,7 @@ impl Invocation {
         Ok(Utf8PathBuf::from(dir))
     }
     pub fn extra_filename(&self) -> anyhow::Result<String> {
-        self.args
+        self.args()
             .iter()
             .find(|arg| arg.starts_with("extra-filename"))
             .and_then(|arg| {
@@ -437,6 +438,53 @@ impl Invocation {
     pub(crate) fn package_name(&self) -> &str {
         self.package_name.as_str()
     }
+
+    pub fn args(&self) -> Vec<String> {
+        if self.is_workspace_build() {
+            let cwd = &self.cwd;
+            let build_dir = build_dir().ok();
+            let fake_args =
+                self.args
+                    .clone()
+                    .into_iter()
+                    .fold(vec!["rustc".to_string()], |mut acc, arg| {
+                        acc.push(arg);
+                        acc
+                    });
+            let matches = rustc().get_matches_from(fake_args);
+            let orig_input = matches.get_one::<Utf8PathBuf>("INPUT");
+            let input = cwd.as_ref().zip_with(orig_input, |cwd, i| cwd.join(i));
+            let input = input
+                .zip_with(build_dir, |input, build_dir| {
+                    pathdiff::diff_utf8_paths(input, build_dir)
+                })
+                .flatten();
+            if let Some((i, orig)) = input.zip(orig_input) {
+                let args: Vec<String> =
+                    self.args
+                        .clone()
+                        .into_iter()
+                        .fold(Vec::new(), |mut acc, arg| {
+                            if arg == orig.to_string() {
+                                acc.push(i.to_string());
+                            } else {
+                                acc.push(arg);
+                            }
+                            acc
+                        });
+                return args;
+            }
+        }
+
+        self.args.clone()
+    }
+
+    pub(crate) fn cwd(&self) -> Option<Utf8PathBuf> {
+        if self.is_workspace_build() {
+            return build_dir().ok();
+        }
+        self.cwd.clone()
+    }
 }
 
 /// A build plan output by `cargo build --build-plan`.
@@ -603,11 +651,13 @@ fn run_build_script(inv: &Invocation) -> Result<(), anyhow::Error> {
 
     let output = Command::new("ninja")
         .arg("-f")
-        .arg(file)
+        .arg(&file)
         .output()
         .expect("failed to execute process");
 
-    if output.status.success() {}
+    if !output.status.success() {
+        eprintln!("Cmd failed: ninja -f {}", file);
+    }
     io::stdout().write_all(&output.stdout).unwrap();
     io::stderr().write_all(&output.stderr).unwrap();
 

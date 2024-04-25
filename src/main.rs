@@ -1,4 +1,5 @@
 #![feature(lazy_cell)]
+#![feature(option_zip)]
 
 #[macro_use]
 extern crate serde_derive;
@@ -9,6 +10,7 @@ mod build_plan;
 mod cli;
 mod crate_type;
 mod custom_build;
+mod rustc_config;
 
 use build_plan::{build_dir, with_build_plan, Invocation};
 use camino::Utf8PathBuf;
@@ -100,9 +102,9 @@ impl Invocation {
         let rule_id = self.rule_id(indice);
         let mut rule = {
             let command = CommandBuilder::new(self.program.clone());
-            let command = command.cwd(self.cwd.clone());
+            let command = command.cwd(self.cwd());
 
-            let command = self.args.iter().fold(command, |cmd, arg| {
+            let command = self.args().iter().fold(command, |cmd, arg| {
                 if arg == "--error-format=json" || arg.starts_with("--json=") {
                     return cmd;
                 }
