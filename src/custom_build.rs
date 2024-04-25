@@ -19,6 +19,7 @@ use anyhow::bail;
 use cargo_util::paths;
 use cargo_util_schemas::manifest::RustVersion;
 use ninja_files_data::CommandBuilder;
+use snailquote::escape;
 use std::path::{Path, PathBuf};
 use std::str::{self, FromStr};
 
@@ -520,10 +521,9 @@ pub fn add_custom_flags(
     }
     let output = output.unwrap();
 
-    let cmd = output
-        .cfgs
-        .iter()
-        .fold(cmd, |cmd, cfg| cmd.arg("--cfg").arg(cfg.as_str()));
+    let cmd = output.cfgs.iter().fold(cmd, |cmd, cfg| {
+        cmd.arg("--cfg").arg(escape(cfg.as_str()).into_owned())
+    });
 
     let cmd = output
         .check_cfgs
