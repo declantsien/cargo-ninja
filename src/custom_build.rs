@@ -533,7 +533,8 @@ pub fn add_custom_flags(
             if i == 0 {
                 cmd = cmd.arg("-Zunstable-options");
             }
-            cmd.arg("--check-cfg").arg(cfg.as_str())
+            cmd.arg("--check-cfg")
+                .arg(escape(cfg.as_str()).into_owned())
         });
 
     let cmd = output
