@@ -520,8 +520,8 @@ impl BuildPlan {
             let mut data = output.stdout;
             let output = String::from_utf8(data.clone())?;
             let output = output
-                .replace(build_dir.join("debug").as_str(), build_dir.as_str())
-                .replace(build_dir.join("release").as_str(), build_dir.as_str());
+                .replace(build_dir.join("debug/").as_str(), build_dir.as_str())
+                .replace(build_dir.join("release/").as_str(), build_dir.as_str());
             data = output.into_bytes();
             // these dirs are created when invoke cargo build --build-plan
             let cargo_debug_dir = build_dir.join("debug");
